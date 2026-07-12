@@ -71,37 +71,12 @@ def invoke_agent():
             payload=payload,
         )
 
-        # 응답 수집 — EventStream의 다양한 형태 처리
-        result_bytes = b""
-        event_log = []
-
-        body = response.get("body")
-        if body:
-            if hasattr(body, "read"):
-                # StreamingBody
-                result_bytes = body.read()
-            elif hasattr(body, "__iter__"):
-                # EventStream
-                for event in body:
-                    event_log.append(str(type(event)) + ": " + str(list(event.keys()) if isinstance(event, dict) else ""))
-                    if isinstance(event, dict):
-                        # 다양한 키 시도
-                        if "chunk" in event:
-                            chunk_data = event["chunk"]
-                            if isinstance(chunk_data, dict) and "bytes" in chunk_data:
-                                result_bytes += chunk_data["bytes"]
-                            elif isinstance(chunk_data, bytes):
-                                result_bytes += chunk_data
-                        elif "bytes" in event:
-                            result_bytes += event["bytes"]
-                        elif "payload" in event:
-                            payload_data = event["payload"]
-                            if isinstance(payload_data, bytes):
-                                result_bytes += payload_data
-                            elif isinstance(payload_data, dict) and "bytes" in payload_data:
-                                result_bytes += payload_data["bytes"]
-            else:
-                result_bytes = str(body).encode()
+        # 응답 수집 — response 키가 StreamingBody
+        response_body = response.get("response")
+        if response_body and hasattr(response_body, "read"):
+            result_bytes = response_body.read()
+        else:
+            result_bytes = b""
 
         elapsed_ms = int((time.time() - start_time) * 1000)
         raw_response = result_bytes.decode("utf-8") if result_bytes else ""
@@ -112,10 +87,6 @@ def invoke_agent():
             response_text = parsed.get("response", raw_response)
         except json.JSONDecodeError:
             response_text = raw_response
-
-        # 디버그: 응답이 비면 event_log 포함
-        if not response_text and event_log:
-            response_text = f"[DEBUG] No content parsed. Events: {event_log[:5]}"
 
         return jsonify({
             "success": True,
