@@ -199,47 +199,26 @@ def invoke_agent_stream():
             )
 
             response_body = response.get("response")
-            if response_body and hasattr(response_body, "iter_chunks"):
-                # 청크 스트리밍
-                buffer = b""
-                for chunk in response_body.iter_chunks():
-                    buffer += chunk
-                    # 유효한 UTF-8 부분만 전송
-                    try:
-                        text = buffer.decode("utf-8")
-                        yield f"data: {json.dumps({'type': 'chunk', 'content': text})}\n\n"
-                        buffer = b""
-                    except UnicodeDecodeError:
-                        continue
-                # 남은 버퍼
-                if buffer:
-                    text = buffer.decode("utf-8", errors="replace")
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': text})}\n\n"
-            elif response_body and hasattr(response_body, "read"):
-                # StreamingBody — chunk 단위 읽기
-                buffer = b""
-                chunk_size = 256
-                while True:
-                    chunk = response_body.read(chunk_size)
-                    if not chunk:
-                        break
-                    buffer += chunk
-                    try:
-                        text = buffer.decode("utf-8")
-                        # JSON 파싱 시도해서 response 필드 추출
-                        try:
-                            parsed = json.loads(text)
-                            content = parsed.get("response", text)
-                        except (json.JSONDecodeError, ValueError):
-                            content = text
-                        yield f"data: {json.dumps({'type': 'chunk', 'content': content})}\n\n"
-                        buffer = b""
-                    except UnicodeDecodeError:
-                        continue
+            if response_body and hasattr(response_body, "read"):
+                result_bytes = response_body.read()
+                raw = result_bytes.decode("utf-8").strip() if result_bytes else ""
 
-                if buffer:
-                    text = buffer.decode("utf-8", errors="replace")
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': text})}\n\n"
+                # JSON 파싱해서 response 필드만 추출
+                content = raw
+                if raw.startswith("{"):
+                    try:
+                        parsed = json.loads(raw)
+                        if "response" in parsed:
+                            content = parsed["response"]
+                    except Exception:
+                        pass
+
+                # 글자 단위 스트리밍 (10자씩)
+                chunk_size = 10
+                for i in range(0, len(content), chunk_size):
+                    partial = content[:i + chunk_size]
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': partial})}\n\n"
+                    time.sleep(0.03)
 
             elapsed_ms = int((time.time() - start_time) * 1000)
             yield f"data: {json.dumps({'type': 'done', 'latencyMs': elapsed_ms, 'sessionId': session_id})}\n\n"
