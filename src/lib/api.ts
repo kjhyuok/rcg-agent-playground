@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5050";
+const API_BASE = typeof window !== "undefined"
+  ? `${window.location.protocol}//${window.location.hostname}:5050`
+  : "http://localhost:5050";
 
 export interface InvokeResponse {
   success: boolean;
