@@ -7,7 +7,7 @@ import json
 import time
 import uuid
 import boto3
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -163,6 +163,96 @@ def invoke_agent():
             "latencyMs": elapsed_ms,
             "sessionId": session_id,
         }), 500
+
+
+@app.route("/api/invoke-stream", methods=["POST"])
+def invoke_agent_stream():
+    """AgentCore Runtime Agent를 호출하고 SSE로 스트리밍합니다."""
+    data = request.json
+    agent_arn = data.get("agentArn", "")
+    message = data.get("message", "")
+    actor_id = data.get("actorId", "playground-user")
+
+    if not agent_arn or not message:
+        return jsonify({"error": "agentArn and message required"}), 400
+
+    def generate():
+        client = get_agentcore_client()
+        session_id = f"playground-{uuid.uuid4().hex[:24]}"
+        start_time = time.time()
+
+        # 시작 이벤트
+        yield f"data: {json.dumps({'type': 'start', 'sessionId': session_id})}\n\n"
+
+        try:
+            payload = json.dumps({
+                "message": message,
+                "prompt": message,
+                "actor_id": actor_id,
+                "session_id": session_id,
+            }).encode()
+
+            response = client.invoke_agent_runtime(
+                agentRuntimeArn=agent_arn,
+                runtimeSessionId=session_id,
+                payload=payload,
+            )
+
+            response_body = response.get("response")
+            if response_body and hasattr(response_body, "iter_chunks"):
+                # 청크 스트리밍
+                buffer = b""
+                for chunk in response_body.iter_chunks():
+                    buffer += chunk
+                    # 유효한 UTF-8 부분만 전송
+                    try:
+                        text = buffer.decode("utf-8")
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': text})}\n\n"
+                        buffer = b""
+                    except UnicodeDecodeError:
+                        continue
+                # 남은 버퍼
+                if buffer:
+                    text = buffer.decode("utf-8", errors="replace")
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': text})}\n\n"
+            elif response_body and hasattr(response_body, "read"):
+                # StreamingBody — chunk 단위 읽기
+                buffer = b""
+                chunk_size = 256
+                while True:
+                    chunk = response_body.read(chunk_size)
+                    if not chunk:
+                        break
+                    buffer += chunk
+                    try:
+                        text = buffer.decode("utf-8")
+                        # JSON 파싱 시도해서 response 필드 추출
+                        try:
+                            parsed = json.loads(text)
+                            content = parsed.get("response", text)
+                        except (json.JSONDecodeError, ValueError):
+                            content = text
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': content})}\n\n"
+                        buffer = b""
+                    except UnicodeDecodeError:
+                        continue
+
+                if buffer:
+                    text = buffer.decode("utf-8", errors="replace")
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': text})}\n\n"
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            yield f"data: {json.dumps({'type': 'done', 'latencyMs': elapsed_ms, 'sessionId': session_id})}\n\n"
+
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e), 'latencyMs': elapsed_ms})}\n\n"
+
+    return Response(generate(), mimetype="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Access-Control-Allow-Origin": "*",
+    })
 
 
 @app.route("/api/agents/validate", methods=["POST"])

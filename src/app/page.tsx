@@ -19,7 +19,7 @@ import {
   generateMockExecutionFlow,
   type ExecutionStep,
 } from "@/lib/agentcore-services";
-import { invokeAgent, checkHealth } from "@/lib/api";
+import { invokeAgentStream, checkHealth } from "@/lib/api";
 
 const AGENT_DEFINITIONS: Array<{
   name: string;
@@ -238,66 +238,41 @@ export default function Home() {
       // ===== 실제 API 호출 =====
       const streamMsgId = `agent-${Date.now()}`;
 
-      // "Thinking..." 표시
+      // 스트리밍 메시지 표시
       setMessages((prev) => [
         ...prev,
         { id: streamMsgId, type: "agent", content: "", timestamp: new Date(), isStreaming: true },
       ]);
 
-      try {
-        const result = await invokeAgent(currentArn, text);
-
-        if (result.success && result.response) {
-          // 실제 Execution Steps 반영
-          if (result.executionSteps && result.executionSteps.length > 0) {
-            setExecutionSteps(result.executionSteps.map((s) => ({
-              ...s,
-              status: "done" as const,
-              timestamp: 0,
-            })));
-          }
-
-          // 스트리밍 효과로 응답 표시
-          const chars = result.response.split("");
-          const charsPerTick = 5;
-          let charIndex = 0;
-
-          const streamInterval = setInterval(() => {
-            charIndex += charsPerTick;
-            if (charIndex >= chars.length) {
-              charIndex = chars.length;
-              clearInterval(streamInterval);
-              setMessages((prev) =>
-                prev.map((m) => m.id === streamMsgId ? { ...m, content: result.response!, isStreaming: false } : m)
-              );
-              setIsExecuting(false);
-            } else {
-              setMessages((prev) =>
-                prev.map((m) => m.id === streamMsgId ? { ...m, content: chars.slice(0, charIndex).join("") } : m)
-              );
-            }
-          }, 25);
-
-          // Update metrics (실제 데이터)
-          setLatency(result.latencyMs);
+      // SSE 스트리밍으로 실시간 수신
+      await invokeAgentStream(
+        currentArn,
+        text,
+        // onChunk — 데이터가 올 때마다 즉시 표시
+        (content) => {
+          setMessages((prev) =>
+            prev.map((m) => m.id === streamMsgId ? { ...m, content } : m)
+          );
+        },
+        // onDone — 완료
+        (latencyMs) => {
+          setMessages((prev) =>
+            prev.map((m) => m.id === streamMsgId ? { ...m, isStreaming: false } : m)
+          );
+          setIsExecuting(false);
+          setLatency(latencyMs);
           setRequests((prev) => prev + 1);
-        } else {
-          // 에러 응답
+        },
+        // onError
+        (error) => {
           setMessages((prev) =>
             prev.map((m) => m.id === streamMsgId
-              ? { ...m, content: `❌ Error: ${result.error || "Unknown error"}`, isStreaming: false }
+              ? { ...m, content: `❌ Error: ${error}`, isStreaming: false }
               : m)
           );
           setIsExecuting(false);
-        }
-      } catch (e) {
-        setMessages((prev) =>
-          prev.map((m) => m.id === streamMsgId
-            ? { ...m, content: `❌ API 연결 실패: ${e}`, isStreaming: false }
-            : m)
-        );
-        setIsExecuting(false);
-      }
+        },
+      );
     } else {
       // ===== Mock 모드 =====
       // Tool calls in chat
