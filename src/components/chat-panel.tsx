@@ -2,6 +2,8 @@
 
 import { useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -87,10 +89,14 @@ export function ChatPanel({
                 key={msg.id}
                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                className="self-start max-w-[75%]"
+                className="self-start max-w-[85%]"
               >
-                <div className="glass px-4 py-2.5 rounded-2xl rounded-bl-md text-[13px] leading-relaxed text-slate-200">
-                  {msg.content}
+                <div className="glass px-4 py-3 rounded-2xl rounded-bl-md text-[13px] leading-relaxed text-slate-200">
+                  <div className="prose prose-invert prose-sm max-w-none prose-table:text-[11px] prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 prose-headings:text-cyan-300 prose-strong:text-white prose-a:text-cyan-400">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {msg.content}
+                    </ReactMarkdown>
+                  </div>
                   {msg.isStreaming && (
                     <span className="inline-block w-[2px] h-[14px] bg-cyan-400 ml-0.5 animate-pulse" />
                   )}

@@ -8,9 +8,16 @@ export interface InvokeResponse {
   error?: string;
   latencyMs: number;
   sessionId: string;
+  executionSteps?: Array<{
+    serviceId: string;
+    status: string;
+    detail: string;
+    latencyMs?: number;
+  }>;
   metadata?: {
     agentArn: string;
     region: string;
+    toolsDetected?: string[];
   };
 }
 

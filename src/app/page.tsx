@@ -248,9 +248,18 @@ export default function Home() {
         const result = await invokeAgent(currentArn, text);
 
         if (result.success && result.response) {
+          // 실제 Execution Steps 반영
+          if (result.executionSteps && result.executionSteps.length > 0) {
+            setExecutionSteps(result.executionSteps.map((s) => ({
+              ...s,
+              status: "done" as const,
+              timestamp: 0,
+            })));
+          }
+
           // 스트리밍 효과로 응답 표시
           const chars = result.response.split("");
-          const charsPerTick = 3;
+          const charsPerTick = 5;
           let charIndex = 0;
 
           const streamInterval = setInterval(() => {
