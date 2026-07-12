@@ -416,11 +416,7 @@ export default function Home() {
           disabled={isExecuting}
         />
         <div className="glass rounded-xl p-4 overflow-hidden flex flex-col">
-          <ExecutionFlow
-            steps={executionSteps}
-            currentPhase={currentPhase}
-            isExecuting={isExecuting}
-          />
+          <ExecutionFlow currentPhase={currentPhase} />
         </div>
       </div>
 
