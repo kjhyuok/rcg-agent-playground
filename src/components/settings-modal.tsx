@@ -47,23 +47,8 @@ export function SettingsModal({
         </DialogHeader>
 
         <div className="flex flex-col gap-4 mt-2">
-          {/* Region */}
-          <div>
-            <label className="text-[12px] text-slate-400 block mb-1.5">
-              Region
-            </label>
-            <Input
-              value={settings.region}
-              onChange={(e) =>
-                onSettingsChange({ ...settings, region: e.target.value })
-              }
-              placeholder="us-east-1"
-              className="bg-white/[0.05] border-white/10 text-white text-[12px] placeholder:text-slate-600"
-            />
-          </div>
-
           {/* Agent ARNs */}
-          <div className="border-t border-white/10 pt-3">
+          <div>
             <p className="text-[11px] text-zinc-500 mb-3">
               Phase별로 배포한 Agent의 ARN을 입력하세요. 입력하면 해당 Agent 카드가 활성화됩니다.
             </p>
@@ -117,7 +102,6 @@ export function SettingsModal({
             <Button
               onClick={() => {
                 onSettingsChange({
-                  region: "us-east-1",
                   recommendArn: "",
                   csArn: "",
                   demandArn: "",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,10 +16,7 @@ import type {
   AgentSettings,
   MockResponse,
 } from "@/lib/types";
-import {
-  generateMockExecutionFlow,
-  type ExecutionStep,
-} from "@/lib/agentcore-services";
+import { generateMockExecutionFlow } from "@/lib/agentcore-services";
 import { invokeAgentStream, checkHealth } from "@/lib/api";
 
 const AGENT_DEFINITIONS: Array<{
@@ -84,49 +82,96 @@ const WELCOME_MESSAGES: Record<number, string> = {
   3: "⚙️ 커스텀 Agent — Settings에서 ARN을 설정하세요.",
 };
 
-function getAgentsForPhase(phase: number): Agent[] {
-  const defaultLatencies = [128, 95, 180, 0];
+const SETTINGS_STORAGE_KEY = "rcg-playground-settings";
+const ARN_KEYS = ["recommendArn", "csArn", "demandArn", "customArn"] as const;
+const DEFAULT_SETTINGS: AgentSettings = {
+  recommendArn: "",
+  csArn: "",
+  demandArn: "",
+  customArn: "",
+};
+
+function loadSettings(): AgentSettings {
+  if (typeof window === "undefined") return DEFAULT_SETTINGS;
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return DEFAULT_SETTINGS;
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_SETTINGS, ...parsed };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+// Agent 정의 + ARN 연결 여부만으로 파생되는 상태 (통계는 별도 state로 관리)
+function deriveAgents(
+  settings: AgentSettings,
+  stats: Array<{ invocations: number; latency: number | null }>
+): Agent[] {
+  const hasArn = ARN_KEYS.map((k) => settings[k]?.trim() !== "");
   return AGENT_DEFINITIONS.map((def, idx) => ({
     id: idx,
     name: def.name,
     icon: def.icon,
-    status: def.phase <= phase ? "ACTIVE" as const : "LOCKED" as const,
-    latency: def.phase <= phase ? defaultLatencies[idx] : null,
-    invocations: 0,
+    status: hasArn[idx] ? ("ACTIVE" as const) : ("LOCKED" as const),
+    latency: hasArn[idx] ? stats[idx].latency : null,
+    invocations: stats[idx].invocations,
     phase: def.phase,
     description: def.description,
+    services: def.services,
   }));
 }
 
+// Settings 변경 시 → ARN 유무로 Phase 자동 계산 (파생값, state로 관리하지 않음)
+function derivePhase(settings: AgentSettings): number {
+  const hasArn = ARN_KEYS.map((k) => settings[k]?.trim() !== "");
+  if (hasArn[3]) return 3;
+  if (hasArn[1] || hasArn[2]) return 2;
+  return 1;
+}
+
 export default function Home() {
-  const [currentPhase, setCurrentPhase] = useState(1);
-  const [agents, setAgents] = useState<Agent[]>(getAgentsForPhase(1));
   const [selectedAgent, setSelectedAgent] = useState(0);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // 최초 메시지는 lazy initializer로 설정 — mount 후 effect에서 setState하지 않음
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
+    {
+      id: "welcome",
+      type: "agent",
+      content: WELCOME_MESSAGES[0],
+      timestamp: new Date(),
+    },
+  ]);
   const [inputValue, setInputValue] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState<AgentSettings>({
-    region: "us-east-1",
-    recommendArn: "",
-    csArn: "",
-    demandArn: "",
-    customArn: "",
-  });
+  // localStorage 복원도 lazy initializer로 — mount 후 effect에서 setState하지 않음
+  const [settings, setSettings] = useState<AgentSettings>(loadSettings);
+
+  // Agent별 실측 통계 (settings 변경과 독립적으로 유지 — 리셋되지 않음)
+  const [agentStats, setAgentStats] = useState(
+    AGENT_DEFINITIONS.map(() => ({ invocations: 0, latency: null as number | null }))
+  );
 
   // Metrics state (start at 0, accumulate on invoke)
   const [latency, setLatency] = useState(0);
   const [tokens, setTokens] = useState(0);
   const [cost, setCost] = useState(0);
   const [requests, setRequests] = useState(0);
-  const [successRate, setSuccessRate] = useState(100);
+  const [successCount, setSuccessCount] = useState(0);
 
-  // Execution Flow state
-  const [executionSteps, setExecutionSteps] = useState<ExecutionStep[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
 
   // API connection state
   const [apiConnected, setApiConnected] = useState(false);
   const [apiAccount, setApiAccount] = useState("");
+
+  const agents = deriveAgents(settings, agentStats);
+  const successRate = requests > 0 ? Math.round((successCount / requests) * 100) : 100;
+  const currentPhase = derivePhase(settings);
+
+  // 설정 변경 시 localStorage에 저장
+  useEffect(() => {
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  }, [settings]);
 
   // API health check on mount
   useEffect(() => {
@@ -136,49 +181,10 @@ export default function Home() {
     });
   }, []);
 
-  // 초기 환영 메시지 (클라이언트에서만)
-  useEffect(() => {
-    setMessages([
-      {
-        id: "welcome",
-        type: "agent",
-        content: WELCOME_MESSAGES[0],
-        timestamp: new Date(),
-      },
-    ]);
-  }, []);
-
-  // Settings 변경 시 → ARN 유무로 Agent 활성화 + Phase 자동 계산
-  useEffect(() => {
-    const arnKeys = ["recommendArn", "csArn", "demandArn", "customArn"];
-    const hasArn = arnKeys.map((k) => settings[k]?.trim() !== "");
-
-    // Phase 자동 계산: 어떤 ARN까지 입력됐는지
-    let detectedPhase = 1;
-    if (hasArn[1] || hasArn[2]) detectedPhase = 2;
-    if (hasArn[3]) detectedPhase = 3;
-    setCurrentPhase(detectedPhase);
-
-    // Agent 상태 업데이트 (ARN 있으면 ACTIVE)
-    setAgents(
-      AGENT_DEFINITIONS.map((def, idx) => ({
-        id: idx,
-        name: def.name,
-        icon: def.icon,
-        status: hasArn[idx] ? "ACTIVE" as const : "LOCKED" as const,
-        latency: hasArn[idx] ? [128, 95, 180, 0][idx] : null,
-        invocations: 0,
-        phase: def.phase,
-        description: def.description,
-        services: def.services,
-      }))
-    );
-  }, [settings]);
-
   // Agent 전환 시 환영 메시지 변경
   const handleSelectAgent = useCallback((idx: number) => {
-    const arnKeys = ["recommendArn", "csArn", "demandArn", "customArn"];
-    if (!settings[arnKeys[idx]]?.trim()) return; // ARN 없으면 선택 불가
+    if (isExecuting) return; // 실행 중에는 전환 불가 (좀비 스트림 방지)
+    if (!settings[ARN_KEYS[idx]]?.trim()) return; // ARN 없으면 선택 불가
     setSelectedAgent(idx);
     setMessages([
       {
@@ -188,8 +194,7 @@ export default function Home() {
         timestamp: new Date(),
       },
     ]);
-    setExecutionSteps([]);
-  }, [settings]);
+  }, [settings, isExecuting]);
 
   const handleSend = useCallback(async () => {
     const text = inputValue.trim();
@@ -210,29 +215,16 @@ export default function Home() {
     const agentType = agentTypes[selectedAgent];
 
     // 실제 ARN이 있는지 확인
-    const arnKeys = ["recommendArn", "csArn", "demandArn", "customArn"];
-    const currentArn = settings[arnKeys[selectedAgent]] || "";
+    const currentArn = settings[ARN_KEYS[selectedAgent]] || "";
     const useRealApi = apiConnected && currentArn.trim() !== "";
+    const invokedAgentIdx = selectedAgent;
 
     // Mock 응답 (API 없을 때 fallback)
     const resp = MOCK_RESPONSES[selectedAgent];
 
-    // Generate execution flow animation
+    // Mock 모드의 tool call / streaming 타이밍 계산용 (실제 API 사용 시에는 미사용)
     const flow = generateMockExecutionFlow(agentType, currentPhase);
     setIsExecuting(true);
-    setExecutionSteps([]);
-
-    // Animate Execution Flow steps
-    flow.forEach((step, i) => {
-      setTimeout(() => {
-        setExecutionSteps((prev) => [...prev, { ...step, status: "active" }]);
-      }, 300 + i * 500);
-      setTimeout(() => {
-        setExecutionSteps((prev) =>
-          prev.map((s, idx) => (idx === i ? { ...s, status: "done" } : s))
-        );
-      }, 300 + i * 500 + 400);
-    });
 
     if (useRealApi) {
       // ===== 실제 API 호출 =====
@@ -262,6 +254,14 @@ export default function Home() {
           setIsExecuting(false);
           setLatency(latencyMs);
           setRequests((prev) => prev + 1);
+          setSuccessCount((prev) => prev + 1);
+          setAgentStats((prev) =>
+            prev.map((s, i) =>
+              i === invokedAgentIdx
+                ? { invocations: s.invocations + 1, latency: latencyMs }
+                : s
+            )
+          );
         },
         // onError
         (error) => {
@@ -271,6 +271,7 @@ export default function Home() {
               : m)
           );
           setIsExecuting(false);
+          setRequests((prev) => prev + 1);
         },
       );
     } else {
@@ -315,13 +316,17 @@ export default function Home() {
             setIsExecuting(false);
 
             const newLatency = flow.reduce((sum, s) => sum + (s.latencyMs || 0), 0);
-            setLatency(Math.round(newLatency / 1000 * 10) / 10 * 1000 || 128);
+            const roundedLatency = Math.round(newLatency / 1000 * 10) / 10 * 1000 || 128;
+            setLatency(roundedLatency);
             setTokens((prev) => prev + 4000 + Math.floor(Math.random() * 2000));
             setCost((prev) => prev + 0.003 + Math.random() * 0.002);
             setRequests((prev) => prev + 1);
-            setAgents((prev) =>
-              prev.map((a, i) =>
-                i === selectedAgent ? { ...a, invocations: a.invocations + 1, latency: Math.round(newLatency / 1000) } : a
+            setSuccessCount((prev) => prev + 1);
+            setAgentStats((prev) =>
+              prev.map((s, i) =>
+                i === invokedAgentIdx
+                  ? { invocations: s.invocations + 1, latency: Math.round(newLatency / 1000) }
+                  : s
               )
             );
             return;
@@ -337,7 +342,7 @@ export default function Home() {
         }, 25);
       }, streamStartTime);
     }
-  }, [inputValue, selectedAgent, currentPhase, isExecuting, requests, settings, apiConnected]);
+  }, [inputValue, selectedAgent, currentPhase, isExecuting, settings, apiConnected]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#0A0A0A]">
@@ -349,7 +354,7 @@ export default function Home() {
         transition={{ duration: 0.5 }}
       >
         <div className="flex items-center gap-3">
-          <img src="/agentcore-icon.png" alt="AgentCore" className="h-9 w-9 rounded-lg" />
+          <Image src="/agentcore-icon.png" alt="AgentCore" width={36} height={36} className="h-9 w-9 rounded-lg" />
           <div>
             <h1 className="text-[14px] font-bold text-white leading-tight">
               Build! Deploy! Observe!

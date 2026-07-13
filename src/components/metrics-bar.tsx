@@ -12,6 +12,12 @@ interface MetricsBarProps {
   activeAgents: number;
 }
 
+function successRateColor(rate: number): string {
+  if (rate >= 90) return "text-emerald-400";
+  if (rate >= 70) return "text-yellow-400";
+  return "text-rose-400";
+}
+
 const PHASE_STEPS = [
   { phase: 1, label: "추천 Agent", description: "Gateway + Runtime" },
   { phase: 2, label: "CS / 수요예측", description: "+ Memory + Policy" },
@@ -24,6 +30,7 @@ export function MetricsBar({
   tokens,
   cost,
   requests,
+  successRate,
   currentPhase,
   activeAgents,
 }: MetricsBarProps) {
@@ -108,7 +115,9 @@ export function MetricsBar({
               <span className="text-zinc-700">·</span>
             </>
           )}
-          <span className="text-emerald-400">✓</span>
+          <span className={`font-mono ${successRateColor(successRate)}`}>
+            success {successRate}%
+          </span>
         </motion.div>
       )}
     </motion.div>

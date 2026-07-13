@@ -34,7 +34,6 @@ export interface ActivityItem {
 }
 
 export interface AgentSettings {
-  region: string;
   recommendArn: string;
   csArn: string;
   demandArn: string;
