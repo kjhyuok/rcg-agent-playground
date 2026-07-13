@@ -130,17 +130,23 @@ function derivePhase(settings: AgentSettings): number {
   return 1;
 }
 
-export default function Home() {
-  const [selectedAgent, setSelectedAgent] = useState(0);
-  // 최초 메시지는 lazy initializer로 설정 — mount 후 effect에서 setState하지 않음
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [
+// Agent별 대화 내역을 독립적으로 보관 — Agent를 전환해도 이전 대화가 사라지지 않음
+function initialMessagesByAgent(): ChatMessage[][] {
+  return AGENT_DEFINITIONS.map((_, idx) => [
     {
-      id: "welcome",
-      type: "agent",
-      content: WELCOME_MESSAGES[0],
+      id: `welcome-${idx}`,
+      type: "agent" as const,
+      content: WELCOME_MESSAGES[idx],
       timestamp: new Date(),
     },
   ]);
+}
+
+export default function Home() {
+  const [selectedAgent, setSelectedAgent] = useState(0);
+  // Agent별 대화 내역 — messagesByAgent[selectedAgent]가 현재 화면에 보이는 대화
+  const [messagesByAgent, setMessagesByAgent] = useState<ChatMessage[][]>(initialMessagesByAgent);
+  const messages = messagesByAgent[selectedAgent];
   const [inputValue, setInputValue] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   // localStorage 복원도 lazy initializer로 — mount 후 effect에서 setState하지 않음
@@ -159,9 +165,16 @@ export default function Home() {
   const [successCount, setSuccessCount] = useState(0);
 
   const [isExecuting, setIsExecuting] = useState(false);
-  const [liveLog, setLiveLog] = useState<DetectedStep[]>([]);
-  // 현재 liveLog가 실제 Agent 응답 기반(true)인지, ARN 미설정 예시 시나리오(false)인지
-  const [logIsLive, setLogIsLive] = useState(false);
+  // Agent별 실행 로그 — Agent를 전환해도 이전 호출의 감지 결과가 유지됨
+  const [logsByAgent, setLogsByAgent] = useState<DetectedStep[][]>(
+    () => AGENT_DEFINITIONS.map(() => [])
+  );
+  // Agent별로 liveLog가 실제 응답 기반(true)인지, ARN 미설정 예시 시나리오(false)인지
+  const [logIsLiveByAgent, setLogIsLiveByAgent] = useState<boolean[]>(
+    () => AGENT_DEFINITIONS.map(() => false)
+  );
+  const liveLog = logsByAgent[selectedAgent];
+  const logIsLive = logIsLiveByAgent[selectedAgent];
 
   // API connection state
   const [apiConnected, setApiConnected] = useState(false);
@@ -184,25 +197,33 @@ export default function Home() {
     });
   }, []);
 
-  // Agent 전환 시 환영 메시지 변경
+  // Agent 전환 — 대화 내역은 messagesByAgent에 그대로 유지됨
   const handleSelectAgent = useCallback((idx: number) => {
     if (isExecuting) return; // 실행 중에는 전환 불가 (좀비 스트림 방지)
     if (!settings[ARN_KEYS[idx]]?.trim()) return; // ARN 없으면 선택 불가
     setSelectedAgent(idx);
-    setMessages([
-      {
-        id: `welcome-${idx}-${Date.now()}`,
-        type: "agent",
-        content: WELCOME_MESSAGES[idx],
-        timestamp: new Date(),
-      },
-    ]);
   }, [settings, isExecuting]);
+
+  // 현재 선택된 Agent의 대화 내역만 갱신하는 헬퍼
+  const updateMessages = useCallback((agentIdx: number, updater: (prev: ChatMessage[]) => ChatMessage[]) => {
+    setMessagesByAgent((prev) =>
+      prev.map((msgs, i) => (i === agentIdx ? updater(msgs) : msgs))
+    );
+  }, []);
+
+  // 특정 Agent의 실행 로그만 갱신하는 헬퍼
+  const updateLog = useCallback((agentIdx: number, updater: (prev: DetectedStep[]) => DetectedStep[]) => {
+    setLogsByAgent((prev) =>
+      prev.map((log, i) => (i === agentIdx ? updater(log) : log))
+    );
+  }, []);
 
   const handleSend = useCallback(async () => {
     const text = inputValue.trim();
     if (!text || isExecuting) return;
     setInputValue("");
+
+    const invokedAgentIdx = selectedAgent;
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -210,7 +231,7 @@ export default function Home() {
       content: text,
       timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+    updateMessages(invokedAgentIdx, (prev) => [...prev, userMsg]);
 
     const agentTypes: Array<"recommend" | "cs" | "demand" | "custom"> = [
       "recommend", "cs", "demand", "custom",
@@ -220,7 +241,6 @@ export default function Home() {
     // 실제 ARN이 있는지 확인
     const currentArn = settings[ARN_KEYS[selectedAgent]] || "";
     const useRealApi = apiConnected && currentArn.trim() !== "";
-    const invokedAgentIdx = selectedAgent;
 
     // Mock 응답 (API 없을 때 fallback)
     const resp = MOCK_RESPONSES[selectedAgent];
@@ -228,15 +248,15 @@ export default function Home() {
     // Mock 모드의 tool call / streaming 타이밍 계산용 (실제 API 사용 시에는 미사용)
     const flow = generateMockExecutionFlow(agentType, currentPhase);
     setIsExecuting(true);
-    setLiveLog([]); // 새 호출 시작 시 이전 실행 로그 초기화
-    setLogIsLive(useRealApi);
+    updateLog(invokedAgentIdx, () => []); // 새 호출 시작 시 이 Agent의 이전 실행 로그 초기화
+    setLogIsLiveByAgent((prev) => prev.map((v, i) => (i === invokedAgentIdx ? useRealApi : v)));
 
     if (useRealApi) {
       // ===== 실제 API 호출 =====
       const streamMsgId = `agent-${Date.now()}`;
 
       // 스트리밍 메시지 표시
-      setMessages((prev) => [
+      updateMessages(invokedAgentIdx, (prev) => [
         ...prev,
         { id: streamMsgId, type: "agent", content: "", timestamp: new Date(), isStreaming: true },
       ]);
@@ -247,13 +267,13 @@ export default function Home() {
         text,
         // onChunk — 데이터가 올 때마다 즉시 표시
         (content) => {
-          setMessages((prev) =>
+          updateMessages(invokedAgentIdx, (prev) =>
             prev.map((m) => m.id === streamMsgId ? { ...m, content } : m)
           );
         },
         // onDone — 완료
         (latencyMs) => {
-          setMessages((prev) =>
+          updateMessages(invokedAgentIdx, (prev) =>
             prev.map((m) => m.id === streamMsgId ? { ...m, isStreaming: false } : m)
           );
           setIsExecuting(false);
@@ -270,7 +290,7 @@ export default function Home() {
         },
         // onError
         (error) => {
-          setMessages((prev) =>
+          updateMessages(invokedAgentIdx, (prev) =>
             prev.map((m) => m.id === streamMsgId
               ? { ...m, content: `❌ Error: ${error}`, isStreaming: false }
               : m)
@@ -281,7 +301,7 @@ export default function Home() {
         undefined,
         // onStep — 응답 기반으로 감지된 실행 단계를 실행 로그에 순차 추가
         (step) => {
-          setLiveLog((prev) => [
+          updateLog(invokedAgentIdx, (prev) => [
             ...prev,
             { id: `step-${Date.now()}-${prev.length}`, serviceId: step.serviceId, detail: step.detail, timestamp: Date.now() },
           ]);
@@ -297,7 +317,7 @@ export default function Home() {
       resp.tools.forEach((tool, i) => {
         const stepIdx = gatewayStepIndices[i] ?? i;
         setTimeout(() => {
-          setMessages((prev) => [
+          updateMessages(invokedAgentIdx, (prev) => [
             ...prev,
             { id: `tool-${Date.now()}-${i}`, type: "tool", content: tool, timestamp: new Date() },
           ]);
@@ -306,7 +326,7 @@ export default function Home() {
 
       flow.forEach((step, i) => {
         setTimeout(() => {
-          setLiveLog((prev) => [
+          updateLog(invokedAgentIdx, (prev) => [
             ...prev,
             { id: `mock-step-${Date.now()}-${i}`, serviceId: step.serviceId, detail: step.detail, timestamp: Date.now() },
           ]);
@@ -318,7 +338,7 @@ export default function Home() {
       const streamMsgId = `agent-${Date.now()}`;
 
       setTimeout(() => {
-        setMessages((prev) => [
+        updateMessages(invokedAgentIdx, (prev) => [
           ...prev,
           { id: streamMsgId, type: "agent", content: "", timestamp: new Date(), isStreaming: true },
         ]);
@@ -332,7 +352,7 @@ export default function Home() {
           if (charIndex >= chars.length) {
             charIndex = chars.length;
             clearInterval(streamInterval);
-            setMessages((prev) =>
+            updateMessages(invokedAgentIdx, (prev) =>
               prev.map((m) => m.id === streamMsgId ? { ...m, content: resp.reply, isStreaming: false } : m)
             );
             setIsExecuting(false);
@@ -354,7 +374,7 @@ export default function Home() {
             return;
           }
 
-          setMessages((prev) =>
+          updateMessages(invokedAgentIdx, (prev) =>
             prev.map((m) =>
               m.id === streamMsgId
                 ? { ...m, content: chars.slice(0, charIndex).join("") }
@@ -364,7 +384,7 @@ export default function Home() {
         }, 25);
       }, streamStartTime);
     }
-  }, [inputValue, selectedAgent, currentPhase, isExecuting, settings, apiConnected]);
+  }, [inputValue, selectedAgent, currentPhase, isExecuting, settings, apiConnected, updateMessages, updateLog]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#0A0A0A]">
