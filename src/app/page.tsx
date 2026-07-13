@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { MetricsBar } from "@/components/metrics-bar";
 import { AgentSidebar } from "@/components/agent-sidebar";
 import { ChatPanel } from "@/components/chat-panel";
-import { ExecutionFlow } from "@/components/execution-flow";
+import { ExecutionFlow, type DetectedStep } from "@/components/execution-flow";
 import { SettingsModal } from "@/components/settings-modal";
 import type {
   Agent,
@@ -159,6 +159,9 @@ export default function Home() {
   const [successCount, setSuccessCount] = useState(0);
 
   const [isExecuting, setIsExecuting] = useState(false);
+  const [liveLog, setLiveLog] = useState<DetectedStep[]>([]);
+  // 현재 liveLog가 실제 Agent 응답 기반(true)인지, ARN 미설정 예시 시나리오(false)인지
+  const [logIsLive, setLogIsLive] = useState(false);
 
   // API connection state
   const [apiConnected, setApiConnected] = useState(false);
@@ -225,6 +228,8 @@ export default function Home() {
     // Mock 모드의 tool call / streaming 타이밍 계산용 (실제 API 사용 시에는 미사용)
     const flow = generateMockExecutionFlow(agentType, currentPhase);
     setIsExecuting(true);
+    setLiveLog([]); // 새 호출 시작 시 이전 실행 로그 초기화
+    setLogIsLive(useRealApi);
 
     if (useRealApi) {
       // ===== 실제 API 호출 =====
@@ -273,10 +278,18 @@ export default function Home() {
           setIsExecuting(false);
           setRequests((prev) => prev + 1);
         },
+        undefined,
+        // onStep — 응답 기반으로 감지된 실행 단계를 실행 로그에 순차 추가
+        (step) => {
+          setLiveLog((prev) => [
+            ...prev,
+            { id: `step-${Date.now()}-${prev.length}`, serviceId: step.serviceId, detail: step.detail, timestamp: Date.now() },
+          ]);
+        },
       );
     } else {
       // ===== Mock 모드 =====
-      // Tool calls in chat
+      // Tool calls in chat + 실행 로그 동시 표시
       const gatewayStepIndices = flow
         .map((s, i) => (s.serviceId === "gateway" ? i : -1))
         .filter((i) => i >= 0);
@@ -289,6 +302,15 @@ export default function Home() {
             { id: `tool-${Date.now()}-${i}`, type: "tool", content: tool, timestamp: new Date() },
           ]);
         }, 300 + stepIdx * 500);
+      });
+
+      flow.forEach((step, i) => {
+        setTimeout(() => {
+          setLiveLog((prev) => [
+            ...prev,
+            { id: `mock-step-${Date.now()}-${i}`, serviceId: step.serviceId, detail: step.detail, timestamp: Date.now() },
+          ]);
+        }, 300 + i * 500);
       });
 
       // Streaming response
@@ -421,7 +443,7 @@ export default function Home() {
           disabled={isExecuting}
         />
         <div className="glass rounded-xl p-4 overflow-hidden flex flex-col">
-          <ExecutionFlow currentPhase={currentPhase} />
+          <ExecutionFlow currentPhase={currentPhase} liveLog={liveLog} isExecuting={isExecuting} isLive={logIsLive} />
         </div>
       </div>
 

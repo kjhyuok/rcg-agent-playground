@@ -18,6 +18,11 @@ export async function checkHealth(): Promise<HealthResponse> {
   }
 }
 
+export interface AgentStreamStep {
+  serviceId: string;
+  detail: string;
+}
+
 export async function invokeAgentStream(
   agentArn: string,
   message: string,
@@ -25,6 +30,7 @@ export async function invokeAgentStream(
   onDone: (latencyMs: number) => void,
   onError: (error: string) => void,
   actorId?: string,
+  onStep?: (step: AgentStreamStep) => void,
 ): Promise<void> {
   try {
     const res = await fetch(`${API_BASE}/api/invoke-stream`, {
@@ -61,6 +67,8 @@ export async function invokeAgentStream(
             const event = JSON.parse(line.slice(6));
             if (event.type === "chunk") {
               onChunk(event.content);
+            } else if (event.type === "step") {
+              onStep?.({ serviceId: event.serviceId, detail: event.detail });
             } else if (event.type === "done") {
               onDone(event.latencyMs);
             } else if (event.type === "error") {
