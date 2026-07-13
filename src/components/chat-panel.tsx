@@ -15,6 +15,8 @@ interface ChatPanelProps {
   onSend: () => void;
   agentName: string;
   disabled?: boolean;
+  presetQuestions?: string[];
+  onPresetSelect?: (question: string) => void;
 }
 
 export function ChatPanel({
@@ -24,6 +26,8 @@ export function ChatPanel({
   onSend,
   agentName,
   disabled = false,
+  presetQuestions = [],
+  onPresetSelect,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -83,6 +87,8 @@ export function ChatPanel({
               );
             }
 
+            const isWaiting = msg.isStreaming && msg.content === "";
+
             return (
               <motion.div
                 key={msg.id}
@@ -91,13 +97,23 @@ export function ChatPanel({
                 className="self-start max-w-[85%]"
               >
                 <div className="glass px-4 py-3 rounded-2xl rounded-bl-md text-[13px] leading-relaxed text-slate-200">
-                  <div className="prose prose-invert prose-sm max-w-none prose-table:text-[11px] prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 prose-headings:text-cyan-300 prose-strong:text-white prose-a:text-cyan-400">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {msg.content}
-                    </ReactMarkdown>
-                  </div>
-                  {msg.isStreaming && (
-                    <span className="inline-block w-[2px] h-[14px] bg-cyan-400 ml-0.5 animate-pulse" />
+                  {isWaiting ? (
+                    <div className="flex items-center gap-1.5 py-1">
+                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="prose prose-invert prose-sm max-w-none prose-table:text-[11px] prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 prose-headings:text-cyan-300 prose-strong:text-white prose-a:text-cyan-400">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
+                      {msg.isStreaming && (
+                        <span className="inline-block w-[2px] h-[14px] bg-cyan-400 ml-0.5 animate-pulse" />
+                      )}
+                    </>
                   )}
                 </div>
               </motion.div>
@@ -105,6 +121,23 @@ export function ChatPanel({
           })}
         </AnimatePresence>
       </div>
+
+      {/* Preset 질문 칩 */}
+      {presetQuestions.length > 0 && (
+        <div className="px-3 pt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
+          {presetQuestions.map((q, i) => (
+            <button
+              key={i}
+              type="button"
+              disabled={disabled}
+              onClick={() => onPresetSelect?.(q)}
+              className="flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] text-slate-300 bg-white/[0.04] border border-white/10 hover:bg-cyan-500/10 hover:border-cyan-500/30 hover:text-cyan-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Input Area */}
       <div className="p-3 border-t border-white/10">

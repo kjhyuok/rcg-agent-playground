@@ -76,10 +76,32 @@ const MOCK_RESPONSES: MockResponse[] = [
 ];
 
 const WELCOME_MESSAGES: Record<number, string> = {
-  0: "🛒 추천 Agent 준비 완료! 고객 ID와 함께 상품 추천을 요청하세요.\n\n예시: \"고객 C001에게 적합한 상품 3개 추천해주세요\"",
-  1: "📞 CS Agent 준비 완료! 주문번호와 함께 문의하세요.\n\n예시: \"주문 ORD-2024-789 환불해주세요\"",
-  2: "📊 수요예측 Agent 준비 완료! 매장 재고 분석을 요청하세요.\n\n예시: \"현재 재고 분석하고 긴급 발주 진행해\"",
+  0: "🛒 추천 Agent 준비 완료! 고객 ID와 함께 상품 추천을 요청하세요.",
+  1: "📞 CS Agent 준비 완료! 주문번호와 함께 문의하세요.",
+  2: "📊 수요예측 Agent 준비 완료! 매장 재고 분석을 요청하세요.",
   3: "⚙️ 커스텀 Agent — Settings에서 ARN을 설정하세요.",
+};
+
+// Agent별 예시 질문 — 입력창 위 preset 칩으로 노출
+const PRESET_QUESTIONS: Record<number, string[]> = {
+  0: [
+    "고객 C001에게 적합한 상품 3개 추천해주세요",
+    "C002 고객 구매 이력 기반으로 추천해줘",
+    "재구매 유도 상품 알려줘",
+  ],
+  1: [
+    "주문 ORD-2024-789 환불해주세요",
+    "C001 고객 최근 주문 상태 알려줘",
+    "배송 지연 문의 대응 방법 알려줘",
+  ],
+  2: [
+    "현재 재고 분석하고 긴급 발주 진행해",
+    "음료류 재고 트렌드 알려줘",
+    "이번 주 발주 우선순위 정리해줘",
+  ],
+  3: [
+    "Settings에서 ARN을 먼저 설정해주세요",
+  ],
 };
 
 const SETTINGS_STORAGE_KEY = "rcg-playground-settings";
@@ -387,7 +409,7 @@ export default function Home() {
   }, [inputValue, selectedAgent, currentPhase, isExecuting, settings, apiConnected, updateMessages, updateLog]);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-[#0A0A0A]">
+    <div className="flex flex-col h-screen overflow-hidden app-shell-bg">
       {/* Header */}
       <motion.header
         className="flex items-center justify-between px-6 py-2.5 border-b border-white/10 bg-gradient-to-r from-[#4f19c7]/20 via-[#2d1b8a]/10 to-[#0d8a3e]/10"
@@ -461,6 +483,11 @@ export default function Home() {
           onSend={handleSend}
           agentName={agents[selectedAgent].name}
           disabled={isExecuting}
+          presetQuestions={PRESET_QUESTIONS[selectedAgent] || []}
+          onPresetSelect={(q) => {
+            if (isExecuting) return;
+            setInputValue(q);
+          }}
         />
         <div className="glass rounded-xl p-4 overflow-hidden flex flex-col">
           <ExecutionFlow currentPhase={currentPhase} liveLog={liveLog} isExecuting={isExecuting} isLive={logIsLive} />
