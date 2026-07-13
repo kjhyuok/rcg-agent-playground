@@ -20,6 +20,37 @@ def get_agentcore_client():
     return boto3.client("bedrock-agentcore", region_name=REGION)
 
 
+# 응답 텍스트에서 감지 가능한 Gateway Tool 흔적 (실제 Runtime은 중간 이벤트를 제공하지 않으므로
+# 최종 응답 본문의 키워드로 "이 호출에서 어떤 Tool이 쓰였을 가능성이 높은지" 역추정한다)
+TOOL_KEYWORDS = {
+    "customer_profile": ["프로필", "고객 정보", "VIP", "알러지"],
+    "product_search": ["추천 상품", "상품 추천", "카테고리", "재고"],
+    "purchase_history": ["구매 이력", "기구매", "구매한"],
+    "cs_lookup_order": ["주문", "ORD-", "배송"],
+    "cs_process_return": ["환불", "반품", "반환"],
+    "inventory_status": ["재고 분석", "품절", "안전재고"],
+    "sales_trend": ["트렌드", "판매 추이", "성장"],
+}
+
+
+def detect_execution_steps(content: str) -> list:
+    """응답 본문 키워드로 감지된 실행 단계를 순서대로 구성한다.
+    Runtime API가 중간 이벤트를 제공하지 않아 완전한 실시간 트레이스는 불가능 —
+    최종 응답을 근거로 재구성한 것임을 프론트에 명시해야 함."""
+    steps = []
+    detected_tools = [name for name, kws in TOOL_KEYWORDS.items() if any(kw in content for kw in kws)]
+
+    for tool in detected_tools[:3]:
+        steps.append({"serviceId": "gateway", "detail": tool})
+
+    if any(kw in content for kw in ["분석", "계산", "비교", "차트"]):
+        steps.append({"serviceId": "code-interpreter", "detail": "데이터 분석 실행"})
+
+    steps.append({"serviceId": "llm", "detail": f"응답 생성 (~{len(content)}자)"})
+    steps.append({"serviceId": "observability", "detail": "Trace 기록"})
+    return steps
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
     """AWS 연결 상태 + 계정 확인"""
@@ -69,28 +100,58 @@ def invoke_agent_stream():
                 payload=payload,
             )
 
+            # AgentCore Runtime 응답 본문은 boto3 StreamingBody.
+            # Agent가 async generator(yield) entrypoint로 구현돼 있으면 토큰이
+            # 생성되는 즉시 이 스트림에 도착한다 — 여기서는 .read()로 전체를
+            # 모아 기다리지 않고, 도착하는 즉시 그대로 클라이언트로 릴레이한다
+            # (가짜 타이핑 효과 없이 진짜 스트리밍).
             response_body = response.get("response")
-            if response_body and hasattr(response_body, "read"):
-                result_bytes = response_body.read()
-                raw = result_bytes.decode("utf-8").strip() if result_bytes else ""
+            content_type = response.get("contentType", "")
+            partial = ""
+            steps_sent = False
 
-                # JSON 파싱해서 response 필드만 추출
-                content = raw
-                if raw.startswith("{"):
-                    try:
-                        parsed = json.loads(raw)
-                        if "response" in parsed:
-                            content = parsed["response"]
-                    except Exception:
-                        pass
+            if response_body:
+                if "text/event-stream" in content_type:
+                    # Agent가 SSE(async generator)로 응답한 경우: 도착하는 즉시 릴레이
+                    for raw_line in response_body.iter_lines():
+                        if not raw_line:
+                            continue
+                        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+                        if not line.startswith("data:"):
+                            continue
+                        try:
+                            event = json.loads(line[len("data:"):].strip())
+                        except json.JSONDecodeError:
+                            continue
 
-                # 글자 단위 스트리밍 (10자씩)
-                chunk_size = 10
-                partial = ""
-                for i in range(0, len(content), chunk_size):
-                    partial += content[i:i + chunk_size]
+                        if event.get("type") == "chunk":
+                            if not steps_sent:
+                                # 첫 청크가 도착한 순간 = LLM이 실제로 답을 만들기 시작한 시점.
+                                # 이 시점을 기준으로 실행 단계 배지를 한 번만 보여준다.
+                                for step in detect_execution_steps(event.get("response", "")):
+                                    yield f"data: {json.dumps({'type': 'step', **step})}\n\n"
+                                steps_sent = True
+                            partial += event.get("response", "")
+                            yield f"data: {json.dumps({'type': 'chunk', 'content': partial})}\n\n"
+                        elif event.get("type") == "done":
+                            partial = event.get("response", partial)
+                else:
+                    # 하위 호환: 스트리밍을 지원하지 않는(return dict) Agent
+                    result_bytes = response_body.read()
+                    raw = result_bytes.decode("utf-8").strip() if result_bytes else ""
+                    content = raw
+                    if raw.startswith("{"):
+                        try:
+                            parsed = json.loads(raw)
+                            if "response" in parsed:
+                                content = parsed["response"]
+                        except Exception:
+                            pass
+                    for step in detect_execution_steps(content):
+                        yield f"data: {json.dumps({'type': 'step', **step})}\n\n"
+                        time.sleep(0.15)
+                    partial = content
                     yield f"data: {json.dumps({'type': 'chunk', 'content': partial})}\n\n"
-                    time.sleep(0.03)
 
             elapsed_ms = int((time.time() - start_time) * 1000)
             yield f"data: {json.dumps({'type': 'done', 'latencyMs': elapsed_ms, 'sessionId': session_id})}\n\n"
