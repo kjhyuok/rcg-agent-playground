@@ -215,8 +215,9 @@ def invoke_agent_stream():
 
                 # 글자 단위 스트리밍 (10자씩)
                 chunk_size = 10
+                partial = ""
                 for i in range(0, len(content), chunk_size):
-                    partial = content[:i + chunk_size]
+                    partial += content[i:i + chunk_size]
                     yield f"data: {json.dumps({'type': 'chunk', 'content': partial})}\n\n"
                     time.sleep(0.03)
 
