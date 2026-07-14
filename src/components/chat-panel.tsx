@@ -28,6 +28,38 @@ function splitIntoBlocks(markdown: string): string[] {
     .filter(Boolean);
 }
 
+// 스트리밍 중에는 매 청크(수 ms)마다가 아니라 일정 간격으로만 마크다운을 다시 그린다.
+// 헤딩/코드블록/표 같은 구조가 스트리밍 도중에도 계속 보이도록 하면서(plain text로
+// 보이면 뭉친 텍스트처럼 읽힘), 청크 도착 타이밍과 렌더 비용이 겹쳐 끊기는 것도 방지.
+function useThrottledValue<T>(value: T, intervalMs: number): T {
+  const [throttled, setThrottled] = useState(value);
+  const lastUpdateRef = useRef(0);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const now = Date.now();
+    const elapsed = now - lastUpdateRef.current;
+
+    if (elapsed >= intervalMs) {
+      lastUpdateRef.current = now;
+      setThrottled(value);
+      return;
+    }
+
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      lastUpdateRef.current = Date.now();
+      setThrottled(value);
+    }, intervalMs - elapsed);
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [value, intervalMs]);
+
+  return throttled;
+}
+
 function ThinkingChecklist({ steps, isLive }: { steps: ThinkingStep[]; isLive?: boolean }) {
   return (
     <div className="flex flex-col gap-1.5 py-1">
@@ -66,7 +98,10 @@ const MARKDOWN_CLASSES =
   "prose-li:my-1 prose-li:leading-[1.7] prose-ul:my-2.5 prose-ol:my-2.5 " +
   "prose-table:text-[11px] prose-th:px-2 prose-th:py-1.5 prose-td:px-2 prose-td:py-1.5 " +
   "prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 " +
-  "prose-strong:text-white prose-a:text-cyan-400 prose-hr:border-zinc-700 prose-hr:my-4";
+  "prose-strong:text-white prose-a:text-cyan-400 prose-hr:border-zinc-700 prose-hr:my-4 " +
+  "prose-blockquote:border-cyan-500/40 prose-blockquote:text-zinc-400 prose-blockquote:not-italic " +
+  "prose-code:text-amber-300 prose-code:bg-black/30 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none " +
+  "prose-pre:bg-black/40 prose-pre:border prose-pre:border-white/10 prose-pre:rounded-lg";
 
 function AnimatedMarkdown({ content }: { content: string }) {
   const blocks = useMemo(() => splitIntoBlocks(content), [content]);
@@ -83,6 +118,44 @@ function AnimatedMarkdown({ content }: { content: string }) {
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{block}</ReactMarkdown>
         </motion.div>
       ))}
+    </div>
+  );
+}
+
+function AgentMessageBubble({ msg, alreadyAnimated }: { msg: ChatMessage; alreadyAnimated: boolean }) {
+  const hasThinkingSteps = (msg.thinkingSteps?.length ?? 0) > 0;
+  const isWaiting = msg.isStreaming && msg.content === "" && !hasThinkingSteps;
+  // 스트리밍 중에는 매 청크가 아니라 200ms마다만 마크다운을 다시 그려
+  // 헤딩/코드블록/표 구조가 계속 보이면서도 렌더 비용을 억제한다.
+  const throttledContent = useThrottledValue(msg.content, 200);
+
+  return (
+    <div className="glass px-4 py-3 rounded-2xl rounded-bl-md text-[13px] leading-relaxed text-slate-200">
+      {isWaiting ? (
+        <div className="flex items-center gap-1.5 py-1">
+          <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
+          <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
+          <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
+        </div>
+      ) : msg.isStreaming && msg.content === "" ? (
+        // 아직 텍스트는 안 왔지만 실행 단계(Tool 호출 등)가 감지된 상태 —
+        // "생각 중" 체크리스트로 표시. isLive=false면 예시 시나리오임을 명시한다.
+        <ThinkingChecklist steps={msg.thinkingSteps || []} isLive={msg.isLive} />
+      ) : msg.isStreaming ? (
+        <>
+          <div className={MARKDOWN_CLASSES}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{throttledContent}</ReactMarkdown>
+          </div>
+          <span className="inline-block w-[2px] h-[14px] bg-cyan-400 ml-0.5 animate-pulse" />
+        </>
+      ) : alreadyAnimated ? (
+        // 최초 1회만 블록 단위 fade-in, 이후 리렌더는 정적으로 표시
+        <div className={MARKDOWN_CLASSES}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+        </div>
+      ) : (
+        <AnimatedMarkdown content={msg.content} />
+      )}
     </div>
   );
 }
@@ -166,10 +239,6 @@ export function ChatPanel({
               );
             }
 
-            const hasThinkingSteps = (msg.thinkingSteps?.length ?? 0) > 0;
-            const isWaiting = msg.isStreaming && msg.content === "" && !hasThinkingSteps;
-            const alreadyAnimated = animatedIds.has(msg.id);
-
             return (
               <motion.div
                 key={msg.id}
@@ -177,34 +246,7 @@ export function ChatPanel({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 className="self-start max-w-[85%]"
               >
-                <div className="glass px-4 py-3 rounded-2xl rounded-bl-md text-[13px] leading-relaxed text-slate-200">
-                  {isWaiting ? (
-                    <div className="flex items-center gap-1.5 py-1">
-                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                      <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                    </div>
-                  ) : msg.isStreaming && msg.content === "" ? (
-                    // 아직 텍스트는 안 왔지만 실행 단계(Tool 호출 등)가 감지된 상태 —
-                    // "생각 중" 체크리스트로 표시. isLive=false면 예시 시나리오임을 명시한다.
-                    <ThinkingChecklist steps={msg.thinkingSteps || []} isLive={msg.isLive} />
-                  ) : msg.isStreaming ? (
-                    // 스트리밍 중에는 마크다운 재파싱 없이 plain text로 렌더링 —
-                    // 매 청크마다 전체 텍스트를 ReactMarkdown이 처음부터 다시 파싱하면
-                    // 텍스트가 길어질수록 비용이 커져 청크 도착 타이밍과 겹쳐 더 끊겨 보임
-                    <>
-                      <div className="whitespace-pre-wrap">{msg.content}</div>
-                      <span className="inline-block w-[2px] h-[14px] bg-cyan-400 ml-0.5 animate-pulse" />
-                    </>
-                  ) : alreadyAnimated ? (
-                    // 최초 1회만 블록 단위 fade-in, 이후 리렌더는 정적으로 표시
-                    <div className={MARKDOWN_CLASSES}>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                    </div>
-                  ) : (
-                    <AnimatedMarkdown content={msg.content} />
-                  )}
-                </div>
+                <AgentMessageBubble msg={msg} alreadyAnimated={animatedIds.has(msg.id)} />
               </motion.div>
             );
           })}
