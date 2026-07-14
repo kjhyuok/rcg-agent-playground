@@ -82,17 +82,19 @@ const WELCOME_MESSAGES: Record<number, string> = {
   3: "⚙️ 커스텀 Agent — Settings에서 ARN을 설정하세요.",
 };
 
-// Agent별 예시 질문 — 입력창 위 preset 칩으로 노출
+// Agent별 예시 질문 — 입력창 위 preset 칩으로 노출.
+// Phase 1(추천 Agent)에는 Memory가 없어 매 호출이 독립적인 대화이므로,
+// 후속 질문이라도 항상 고객 ID를 포함해야 Agent가 맥락을 알 수 있다.
 const PRESET_QUESTIONS: Record<number, string[]> = {
   0: [
     "고객 C001에게 적합한 상품 3개 추천해주세요",
     "C002 고객 구매 이력 기반으로 추천해줘",
-    "재구매 유도 상품 알려줘",
+    "C001 고객에게 재구매 유도 상품 알려줘",
   ],
   1: [
     "주문 ORD-2024-789 환불해주세요",
     "C001 고객 최근 주문 상태 알려줘",
-    "배송 지연 문의 대응 방법 알려줘",
+    "C002 고객 배송 지연 문의 대응 방법 알려줘",
   ],
   2: [
     "현재 재고 분석하고 긴급 발주 진행해",
