@@ -103,17 +103,20 @@ export function ChatPanel({
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
                     </div>
-                  ) : (
+                  ) : msg.isStreaming ? (
+                    // 스트리밍 중에는 마크다운 재파싱 없이 plain text로 렌더링 —
+                    // 매 청크마다 전체 텍스트를 ReactMarkdown이 처음부터 다시 파싱하면
+                    // 텍스트가 길어질수록 비용이 커져 청크 도착 타이밍과 겹쳐 더 끊겨 보임
                     <>
-                      <div className="prose prose-invert prose-sm max-w-none prose-table:text-[11px] prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 prose-headings:text-cyan-300 prose-strong:text-white prose-a:text-cyan-400">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.content}
-                        </ReactMarkdown>
-                      </div>
-                      {msg.isStreaming && (
-                        <span className="inline-block w-[2px] h-[14px] bg-cyan-400 ml-0.5 animate-pulse" />
-                      )}
+                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                      <span className="inline-block w-[2px] h-[14px] bg-cyan-400 ml-0.5 animate-pulse" />
                     </>
+                  ) : (
+                    <div className="prose prose-invert prose-sm max-w-none prose-table:text-[11px] prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 prose-headings:text-cyan-300 prose-strong:text-white prose-a:text-cyan-400">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
                   )}
                 </div>
               </motion.div>
