@@ -33,6 +33,19 @@ TOOL_KEYWORDS = {
 }
 
 
+def extract_delta_text(event: dict):
+    """Strands/Bedrock 표준 스트리밍 이벤트({"event": {"contentBlockDelta": ...}})에서
+    텍스트 조각을 추출한다. 이 포맷이 아니면 None을 반환한다.
+    (Agent가 커스텀 {"type": "chunk", "response": ...} 대신 stream_async()의
+    원시 이벤트를 그대로 yield하는 경우를 위한 하위 호환 경로.)"""
+    inner = event.get("event")
+    if not isinstance(inner, dict):
+        return None
+    delta = inner.get("contentBlockDelta", {}).get("delta", {})
+    text = delta.get("text")
+    return text if isinstance(text, str) else None
+
+
 def detect_execution_steps(content: str) -> list:
     """응답 본문 키워드로 감지된 실행 단계를 순서대로 구성한다.
     Runtime API가 중간 이벤트를 제공하지 않아 완전한 실시간 트레이스는 불가능 —
@@ -124,14 +137,17 @@ def invoke_agent_stream():
                         except json.JSONDecodeError:
                             continue
 
-                        if event.get("type") == "chunk":
+                        delta_text = extract_delta_text(event)
+
+                        if event.get("type") == "chunk" or delta_text is not None:
+                            text_piece = event.get("response", "") if event.get("type") == "chunk" else delta_text
                             if not steps_sent:
                                 # 첫 청크가 도착한 순간 = LLM이 실제로 답을 만들기 시작한 시점.
                                 # 이 시점을 기준으로 실행 단계 배지를 한 번만 보여준다.
-                                for step in detect_execution_steps(event.get("response", "")):
+                                for step in detect_execution_steps(text_piece):
                                     yield f"data: {json.dumps({'type': 'step', **step})}\n\n"
                                 steps_sent = True
-                            partial += event.get("response", "")
+                            partial += text_piece
                             yield f"data: {json.dumps({'type': 'chunk', 'content': partial})}\n\n"
                         elif event.get("type") == "done":
                             partial = event.get("response", partial)
