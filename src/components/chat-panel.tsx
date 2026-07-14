@@ -1,12 +1,12 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage, ThinkingStep } from "@/lib/types";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -17,6 +17,74 @@ interface ChatPanelProps {
   disabled?: boolean;
   presetQuestions?: string[];
   onPresetSelect?: (question: string) => void;
+}
+
+// 최종 응답을 문단/리스트/헤딩 단위 블록으로 쪼갠다 (빈 줄 기준).
+// 스트리밍이 끝난 뒤 이 블록들을 순차적으로 fade-in시켜 "구조가 드러나는" 느낌을 낸다.
+function splitIntoBlocks(markdown: string): string[] {
+  return markdown
+    .split(/\n{2,}/)
+    .map((b) => b.trim())
+    .filter(Boolean);
+}
+
+function ThinkingChecklist({ steps, isLive }: { steps: ThinkingStep[]; isLive?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1.5 py-1">
+      <AnimatePresence initial={false}>
+        {steps.map((step) => (
+          <motion.div
+            key={step.id}
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="flex items-center gap-2 text-[12px]"
+          >
+            {step.status === "done" ? (
+              <span className="text-emerald-400">✓</span>
+            ) : (
+              <span className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+            )}
+            <span className={step.status === "done" ? "text-zinc-500" : "text-zinc-300"}>
+              {step.label}
+            </span>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+      {steps.length > 0 && (
+        <span className="text-[9px] text-zinc-600 mt-0.5">
+          {isLive ? "* 응답 내용을 근거로 추정한 진행 단계입니다" : "* 예시 시나리오 (Mock)"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+const MARKDOWN_CLASSES =
+  "prose prose-invert prose-sm max-w-none " +
+  "prose-p:my-2.5 prose-p:leading-[1.75] " +
+  "prose-headings:mt-4 prose-headings:mb-2 prose-headings:text-cyan-300 " +
+  "prose-li:my-1 prose-li:leading-[1.7] prose-ul:my-2.5 prose-ol:my-2.5 " +
+  "prose-table:text-[11px] prose-th:px-2 prose-th:py-1.5 prose-td:px-2 prose-td:py-1.5 " +
+  "prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 " +
+  "prose-strong:text-white prose-a:text-cyan-400 prose-hr:border-zinc-700 prose-hr:my-4";
+
+function AnimatedMarkdown({ content }: { content: string }) {
+  const blocks = useMemo(() => splitIntoBlocks(content), [content]);
+
+  return (
+    <div className={MARKDOWN_CLASSES}>
+      {blocks.map((block, i) => (
+        <motion.div
+          key={i}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.06, duration: 0.25 }}
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{block}</ReactMarkdown>
+        </motion.div>
+      ))}
+    </div>
+  );
 }
 
 export function ChatPanel({
@@ -30,12 +98,23 @@ export function ChatPanel({
   onPresetSelect,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 스트리밍이 막 끝난 메시지만 블록 fade-in 애니메이션을 1회 적용하고,
+  // 그 이후(예: 다른 메시지 도착으로 리렌더될 때)는 정적으로 표시해 매번 재생되지 않게 한다.
+  const [animatedIds, setAnimatedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  useEffect(() => {
+    messages.forEach((m) => {
+      if (m.type === "agent" && !m.isStreaming && m.content && !animatedIds.has(m.id)) {
+        setAnimatedIds((prev) => new Set(prev).add(m.id));
+      }
+    });
+  }, [messages, animatedIds]);
 
   return (
     <div className="glass rounded-xl flex flex-col h-full overflow-hidden">
@@ -87,7 +166,9 @@ export function ChatPanel({
               );
             }
 
-            const isWaiting = msg.isStreaming && msg.content === "";
+            const hasThinkingSteps = (msg.thinkingSteps?.length ?? 0) > 0;
+            const isWaiting = msg.isStreaming && msg.content === "" && !hasThinkingSteps;
+            const alreadyAnimated = animatedIds.has(msg.id);
 
             return (
               <motion.div
@@ -103,6 +184,10 @@ export function ChatPanel({
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
                       <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
                     </div>
+                  ) : msg.isStreaming && msg.content === "" ? (
+                    // 아직 텍스트는 안 왔지만 실행 단계(Tool 호출 등)가 감지된 상태 —
+                    // "생각 중" 체크리스트로 표시. isLive=false면 예시 시나리오임을 명시한다.
+                    <ThinkingChecklist steps={msg.thinkingSteps || []} isLive={msg.isLive} />
                   ) : msg.isStreaming ? (
                     // 스트리밍 중에는 마크다운 재파싱 없이 plain text로 렌더링 —
                     // 매 청크마다 전체 텍스트를 ReactMarkdown이 처음부터 다시 파싱하면
@@ -111,12 +196,13 @@ export function ChatPanel({
                       <div className="whitespace-pre-wrap">{msg.content}</div>
                       <span className="inline-block w-[2px] h-[14px] bg-cyan-400 ml-0.5 animate-pulse" />
                     </>
-                  ) : (
-                    <div className="prose prose-invert prose-sm max-w-none prose-table:text-[11px] prose-th:px-2 prose-th:py-1 prose-td:px-2 prose-td:py-1 prose-table:border-zinc-700 prose-th:border-zinc-700 prose-td:border-zinc-700 prose-headings:text-cyan-300 prose-strong:text-white prose-a:text-cyan-400">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {msg.content}
-                      </ReactMarkdown>
+                  ) : alreadyAnimated ? (
+                    // 최초 1회만 블록 단위 fade-in, 이후 리렌더는 정적으로 표시
+                    <div className={MARKDOWN_CLASSES}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                     </div>
+                  ) : (
+                    <AnimatedMarkdown content={msg.content} />
                   )}
                 </div>
               </motion.div>

@@ -94,6 +94,24 @@ export interface ExecutionStep {
   timestamp: number;
 }
 
+// serviceId → "생각 중" 체크리스트에 표시할 사람이 읽는 문구
+// (실제 detail 텍스트는 종종 raw tool 이름이라 그대로 노출하기엔 부적합)
+const THINKING_LABELS: Record<string, string> = {
+  gateway: "관련 정보를 조회하고 있어요",
+  llm: "답변을 정리하고 있어요",
+  "code-interpreter": "데이터를 분석하고 있어요",
+  memory: "이전 대화 맥락을 확인하고 있어요",
+  policy: "정책을 확인하고 있어요",
+  browser: "외부 정보를 조회하고 있어요",
+  observability: "처리 기록을 남기고 있어요",
+  "multi-agent": "적절한 Agent로 연결하고 있어요",
+  evaluations: "응답 품질을 확인하고 있어요",
+};
+
+export function thinkingLabelFor(serviceId: string): string {
+  return THINKING_LABELS[serviceId] || "처리하고 있어요";
+}
+
 // Phase별로 사용되는 서비스 매핑
 export function getActiveServicesForPhase(phase: number): string[] {
   return AGENTCORE_SERVICES.filter((s) => s.phase <= phase).map((s) => s.id);

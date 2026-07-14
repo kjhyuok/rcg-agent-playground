@@ -16,6 +16,16 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   isStreaming?: boolean;
+  /** 응답 생성 중 "생각 중" 체크리스트로 표시할 단계들 */
+  thinkingSteps?: ThinkingStep[];
+  /** true=실제 Agent 응답 기반 추정, false=ARN 미설정 Mock 시나리오 */
+  isLive?: boolean;
+}
+
+export interface ThinkingStep {
+  id: string;
+  label: string;
+  status: "pending" | "active" | "done";
 }
 
 export interface TraceItem {

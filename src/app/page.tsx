@@ -16,7 +16,7 @@ import type {
   AgentSettings,
   MockResponse,
 } from "@/lib/types";
-import { generateMockExecutionFlow } from "@/lib/agentcore-services";
+import { generateMockExecutionFlow, thinkingLabelFor } from "@/lib/agentcore-services";
 import { invokeAgentStream, checkHealth } from "@/lib/api";
 
 const AGENT_DEFINITIONS: Array<{
@@ -280,17 +280,20 @@ export default function Home() {
       // 스트리밍 메시지 표시
       updateMessages(invokedAgentIdx, (prev) => [
         ...prev,
-        { id: streamMsgId, type: "agent", content: "", timestamp: new Date(), isStreaming: true },
+        { id: streamMsgId, type: "agent", content: "", timestamp: new Date(), isStreaming: true, isLive: true, thinkingSteps: [] },
       ]);
 
       // SSE 스트리밍으로 실시간 수신
       await invokeAgentStream(
         currentArn,
         text,
-        // onChunk — 데이터가 올 때마다 즉시 표시
+        // onChunk — 데이터가 올 때마다 즉시 표시. 첫 청크 도착 = 실제 답변 시작이므로
+        // 그 시점에 남아있는 thinkingSteps는 모두 done으로 마감해 체크리스트를 정리한다
         (content) => {
           updateMessages(invokedAgentIdx, (prev) =>
-            prev.map((m) => m.id === streamMsgId ? { ...m, content } : m)
+            prev.map((m) => m.id === streamMsgId
+              ? { ...m, content, thinkingSteps: m.thinkingSteps?.map((s) => ({ ...s, status: "done" as const })) }
+              : m)
           );
         },
         // onDone — 완료
@@ -321,12 +324,24 @@ export default function Home() {
           setRequests((prev) => prev + 1);
         },
         undefined,
-        // onStep — 응답 기반으로 감지된 실행 단계를 실행 로그에 순차 추가
+        // onStep — 응답 기반으로 감지된 실행 단계를 실행 로그 + 말풍선 안 "생각 중" 체크리스트에 반영
         (step) => {
+          const stepId = `step-${Date.now()}-${Math.random()}`;
           updateLog(invokedAgentIdx, (prev) => [
             ...prev,
-            { id: `step-${Date.now()}-${prev.length}`, serviceId: step.serviceId, detail: step.detail, timestamp: Date.now() },
+            { id: stepId, serviceId: step.serviceId, detail: step.detail, timestamp: Date.now() },
           ]);
+          updateMessages(invokedAgentIdx, (prev) =>
+            prev.map((m) => m.id === streamMsgId
+              ? {
+                  ...m,
+                  thinkingSteps: [
+                    ...(m.thinkingSteps || []).map((s) => ({ ...s, status: "done" as const })),
+                    { id: stepId, label: thinkingLabelFor(step.serviceId), status: "active" as const },
+                  ],
+                }
+              : m)
+          );
         },
       );
     } else {
@@ -362,7 +377,7 @@ export default function Home() {
       setTimeout(() => {
         updateMessages(invokedAgentIdx, (prev) => [
           ...prev,
-          { id: streamMsgId, type: "agent", content: "", timestamp: new Date(), isStreaming: true },
+          { id: streamMsgId, type: "agent", content: "", timestamp: new Date(), isStreaming: true, isLive: false },
         ]);
 
         const chars = resp.reply.split("");
