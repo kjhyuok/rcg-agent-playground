@@ -12,7 +12,7 @@ cd playground
 npm install
 npm run build
 cd api && pip3 install -r requirements.txt && cd /opt/playground
-export AWS_REGION=us-east-1
+export AWS_REGION=us-west-2
 nohup python3 api/app.py > /var/log/playground-api.log 2>&1 &
 nohup npx next start -p 3000 -H 0.0.0.0 > /var/log/playground-ui.log 2>&1 &
 echo "READY" > /tmp/playground-status

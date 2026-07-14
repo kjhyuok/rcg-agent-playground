@@ -13,7 +13,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-REGION = os.environ.get("AWS_REGION", "us-east-1")
+REGION = os.environ.get("AWS_REGION", "us-west-2")
 
 
 def get_agentcore_client():
