@@ -80,10 +80,16 @@ const PRESET_QUESTIONS: Record<number, string[]> = {
     "C002 고객 구매 이력 기반으로 추천해줘",
     "C001 고객에게 재구매 유도 상품 알려줘",
   ],
+  // CS Agent(Phase 2A) — 각 질문이 서로 다른 AgentCore 서비스를 켜도록 설계.
+  // 실제 mock 데이터 기준: ORD-...001=프로틴바 32,000원(일반환불) /
+  // ORD-...003=보조배터리 69,000원(5만원↑ → 에스컬레이션=Policy) / 보조배터리는 경쟁사 사이트에도 존재(Browser)
   1: [
-    "주문 ORD-2024-789 환불해주세요",
-    "C001 고객 최근 주문 상태 알려줘",
-    "C002 고객 배송 지연 문의 대응 방법 알려줘",
+    "주문 ORD-20260620-001 배송 상태 조회해줘",              // Gateway(cs_lookup_order) + Memory
+    "ORD-20260620-003 환불해줘 (보조배터리)",                 // Gateway + Policy(69,000원→에스컬레이션) + Memory
+    "그 보조배터리, 다른 데가 더 싸다는데 경쟁사 가격 비교해줘",  // Browser + Memory
+    "ORD-20260620-002 반품 정책 알려줘",                      // Gateway(cs_return_policy) + Memory
+    "아까 그 주문, 반품 가능한지랑 환불 조건도 같이 알려줘",     // Memory(이전 맥락 활용) + Gateway
+    "C001 고객인데 지난번 문의 이어서 처리해줘",               // Memory(세션 넘어 기억) 강조
   ],
   2: [
     "Settings에서 ARN을 먼저 설정해주세요",
