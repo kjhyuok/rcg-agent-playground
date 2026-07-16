@@ -16,6 +16,8 @@ interface ChatPanelProps {
   agentName: string;
   disabled?: boolean;
   presetQuestions?: string[];
+  /** 응답 완료 후 대화 맥락 기반으로 추천되는 다음 질문 */
+  followUpQuestions?: string[];
   onPresetSelect?: (question: string) => void;
   /** empty state(대화 시작 전)에 표시할 Agent 메타 */
   agentIcon?: string;
@@ -280,6 +282,7 @@ export function ChatPanel({
   agentName,
   disabled = false,
   presetQuestions = [],
+  followUpQuestions = [],
   onPresetSelect,
   agentIcon,
   agentDescription,
@@ -345,7 +348,7 @@ export function ChatPanel({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   className="self-end max-w-[75%]"
                 >
-                  <div className="bg-gradient-to-r from-blue-600 to-cyan-600 text-white px-4 py-2.5 rounded-2xl rounded-br-md text-[13px] leading-relaxed">
+                  <div className="bg-gradient-to-r from-blue-600/75 to-cyan-600/75 text-white/95 px-4 py-2.5 rounded-2xl rounded-br-md text-[13px] leading-relaxed">
                     {msg.content}
                   </div>
                 </motion.div>
@@ -383,21 +386,68 @@ export function ChatPanel({
         )}
       </div>
 
-      {/* Preset 질문 칩 — 대화 시작 후에만(시작 전엔 EmptyState에 이미 노출) */}
-      {conversationStarted && presetQuestions.length > 0 && (
-        <div className="px-3 pt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
-          {presetQuestions.map((q, i) => (
-            <button
-              key={i}
-              type="button"
-              disabled={disabled}
-              onClick={() => onPresetSelect?.(q)}
-              className="flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] text-slate-300 bg-white/[0.04] border border-white/10 hover:bg-cyan-500/10 hover:border-cyan-500/30 hover:text-cyan-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+      {/* 대화 시작 후 입력창 위 질문 추천.
+          - 응답 완료 & 맥락 기반 followUp이 있으면: 아래에서 팝업처럼 등장하는 강조 섹션
+          - 그 외(실행 중 등): 고정 preset 칩으로 폴백 */}
+      {conversationStarted && (
+        <AnimatePresence mode="wait">
+          {!disabled && followUpQuestions.length > 0 ? (
+            <motion.div
+              key="followups"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.35, ease: "easeOut" }}
+              className="px-3 pt-2.5"
             >
-              {q}
-            </button>
-          ))}
-        </div>
+              <div className="flex items-center gap-1.5 mb-1.5 px-0.5">
+                <span className="text-cyan-500/70 text-[10px]">✨</span>
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">
+                  이어서 물어보기
+                </span>
+              </div>
+              {/* 가로 1줄 3열 — 채팅 흐름을 방해하지 않도록 컴팩트하고 톤다운된 카드 */}
+              <div className="grid grid-cols-3 gap-1.5">
+                {followUpQuestions.map((q, i) => (
+                  <motion.button
+                    key={q}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onPresetSelect?.(q)}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.06 + i * 0.06, duration: 0.25 }}
+                    title={q}
+                    className="group flex items-start gap-1.5 text-left px-2.5 py-2 rounded-lg text-[11px] leading-snug text-slate-400 bg-white/[0.025] border border-white/[0.07] hover:bg-cyan-500/[0.06] hover:border-cyan-500/25 hover:text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <span className="text-zinc-600 group-hover:text-cyan-400/70 transition-colors flex-shrink-0 mt-px">↗</span>
+                    <span className="flex-1 line-clamp-2">{q}</span>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          ) : presetQuestions.length > 0 ? (
+            <motion.div
+              key="presets"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="px-3 pt-2.5 flex gap-1.5 overflow-x-auto pb-0.5"
+            >
+              {presetQuestions.map((q, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onPresetSelect?.(q)}
+                  className="flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] text-slate-300 bg-white/[0.04] border border-white/10 hover:bg-cyan-500/10 hover:border-cyan-500/30 hover:text-cyan-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {q}
+                </button>
+              ))}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
       )}
 
       {/* Input Area */}
@@ -409,7 +459,7 @@ export function ChatPanel({
             onKeyDown={(e) => e.key === "Enter" && !disabled && onSend()}
             placeholder={disabled ? "Agent 실행 중..." : "Agent에 질의하세요... (Enter로 전송)"}
             disabled={disabled}
-            className="flex-1 bg-white/[0.05] border-white/10 text-white placeholder:text-slate-500 text-[13px] focus-visible:ring-cyan-500/50 disabled:opacity-50"
+            className="flex-1 bg-[#0d1420] border border-cyan-500/40 text-white placeholder:text-slate-500 text-[13px] shadow-[0_0_0_1px_rgba(6,182,212,0.06),0_0_18px_-8px_rgba(6,182,212,0.5)] focus-visible:border-cyan-400/70 focus-visible:ring-2 focus-visible:ring-cyan-500/40 disabled:opacity-50 transition-colors"
           />
           <Button
             onClick={onSend}

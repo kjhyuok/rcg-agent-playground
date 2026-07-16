@@ -14,7 +14,8 @@
 |------|------|
 | **Agent 채팅** | 배포한 Agent에 자연어로 질문 → SSE 실시간 스트리밍 응답 |
 | **AgentCore Services 패널** | 이번 호출에서 실제로 사용된 서비스와 호출 내용을 카드에 표시 (LIVE/MOCK 구분) |
-| **Phase Progress** | 워크샵 진행 상황 시각화 (추천 → CS/수요 → 커스텀) |
+| **이어서 물어보기** | 응답 완료 후, 방금 대화 맥락(고객 ID·주문번호 등)을 반영한 다음 질문을 추천. 워크샵 샘플 데이터로 답변이 보장되는 룰셋 기반 |
+| **Phase Progress** | 워크샵 진행 상황 시각화 (추천 → CS → 커스텀) |
 | **Agent 카드** | Phase별 Agent 상태 (ACTIVE/LOCKED), ARN 등록 시 자동 활성화 |
 | **Settings** | Agent별 ARN 입력 → localStorage 저장 → 즉시 연결 |
 
@@ -157,7 +158,6 @@ CloudFormation이 하는 일:
 |-------|-------|-----------|
 | Phase 1 | 상품 추천 Agent | Gateway · Bedrock LLM · Observability |
 | Phase 2 | CS 자동화 Agent (주문·반품·경쟁사 가격 비교) | + Memory · Policy · Browser |
-| Phase 2 | 수요예측 Agent (재고·트렌드·자동 발주) | + Memory · Policy · Browser |
 | Phase 3 | 커스텀 Agent | + Multi-Agent (A2A) · Evaluations |
 
 정의된 AgentCore 서비스 (총 8개): `gateway`, `llm`, `memory`, `policy`, `browser`, `observability`, `multi-agent`, `evaluations`
@@ -183,6 +183,7 @@ rcg-agent-playground/
 │   └── lib/
 │       ├── agentcore-services.ts # 8개 서비스 정의 + mock 시나리오
 │       ├── api.ts                # Flask API 클라이언트 (health/invoke-stream/validate)
+│       ├── follow-up.ts          # 대화 맥락 기반 "다음 질문" 추천 룰셋
 │       ├── types.ts              # TypeScript 타입
 │       └── utils.ts
 ├── api/

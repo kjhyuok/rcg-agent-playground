@@ -115,15 +115,15 @@
   background:
     linear-gradient(
       120deg,
-      rgba(139, 92, 246, 0.18) 0%,
-      rgba(79, 70, 229, 0.13) 45%,
-      rgba(34, 211, 238, 0.10) 100%
+      rgba(139, 92, 246, 0.09) 0%,
+      rgba(79, 70, 229, 0.07) 45%,
+      rgba(34, 211, 238, 0.05) 100%
     );
-  border: 1px solid rgba(139, 92, 246, 0.22);
+  border: 1px solid rgba(139, 92, 246, 0.13);
   backdrop-filter: blur(12px);
   box-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.08) inset,
-    0 8px 24px -14px rgba(124, 58, 237, 0.30);
+    0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
+    0 8px 24px -16px rgba(124, 58, 237, 0.20);
 }
 
 /* Scrollbar styling */

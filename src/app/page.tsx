@@ -18,6 +18,7 @@ import type {
 } from "@/lib/types";
 import { generateMockExecutionFlow, thinkingLabelFor } from "@/lib/agentcore-services";
 import { invokeAgentStream, checkHealth } from "@/lib/api";
+import { buildFollowUps, type AgentType } from "@/lib/follow-up";
 
 const AGENT_DEFINITIONS: Array<{
   name: string;
@@ -183,6 +184,13 @@ export default function Home() {
   const liveLog = logsByAgent[selectedAgent];
   const logIsLive = logIsLiveByAgent[selectedAgent];
 
+  // Agent별 "다음 질문" 추천 — 응답이 끝나면 방금 대화 맥락으로 채워진다.
+  // 대화 시작 전(빈 배열)엔 EmptyState의 고정 preset을 쓰고, 응답 후엔 이 맥락 질문으로 대체.
+  const [followUpsByAgent, setFollowUpsByAgent] = useState<string[][]>(
+    () => AGENT_DEFINITIONS.map(() => [])
+  );
+  const followUps = followUpsByAgent[selectedAgent];
+
   // API connection state
   const [apiConnected, setApiConnected] = useState(false);
   const [apiAccount, setApiAccount] = useState("");
@@ -240,9 +248,7 @@ export default function Home() {
     };
     updateMessages(invokedAgentIdx, (prev) => [...prev, userMsg]);
 
-    const agentTypes: Array<"recommend" | "cs" | "custom"> = [
-      "recommend", "cs", "custom",
-    ];
+    const agentTypes: AgentType[] = ["recommend", "cs", "custom"];
     const agentType = agentTypes[selectedAgent];
 
     // 실제 ARN이 있는지 확인
@@ -256,6 +262,7 @@ export default function Home() {
     const flow = generateMockExecutionFlow(agentType, currentPhase);
     setIsExecuting(true);
     updateLog(invokedAgentIdx, () => []); // 새 호출 시작 시 이 Agent의 이전 실행 로그 초기화
+    setFollowUpsByAgent((prev) => prev.map((v, i) => (i === invokedAgentIdx ? [] : v))); // 이전 추천 질문 제거
     setLogIsLiveByAgent((prev) => prev.map((v, i) => (i === invokedAgentIdx ? useRealApi : v)));
 
     if (useRealApi) {
@@ -283,8 +290,13 @@ export default function Home() {
         },
         // onDone — 완료
         (latencyMs) => {
+          let finalReply = "";
           updateMessages(invokedAgentIdx, (prev) =>
-            prev.map((m) => m.id === streamMsgId ? { ...m, isStreaming: false } : m)
+            prev.map((m) => {
+              if (m.id !== streamMsgId) return m;
+              finalReply = m.content;
+              return { ...m, isStreaming: false };
+            })
           );
           setIsExecuting(false);
           setLatency(latencyMs);
@@ -297,6 +309,9 @@ export default function Home() {
                 : s
             )
           );
+          // 방금 대화 맥락으로 다음 질문 추천 갱신
+          const nextQs = buildFollowUps({ agentType, userText: text, replyText: finalReply });
+          setFollowUpsByAgent((prev) => prev.map((v, i) => (i === invokedAgentIdx ? nextQs : v)));
         },
         // onError
         (error) => {
@@ -393,6 +408,9 @@ export default function Home() {
                   : s
               )
             );
+            // 방금 대화 맥락으로 다음 질문 추천 갱신
+            const nextQs = buildFollowUps({ agentType, userText: text, replyText: resp.reply });
+            setFollowUpsByAgent((prev) => prev.map((v, i) => (i === invokedAgentIdx ? nextQs : v)));
             return;
           }
 
@@ -487,6 +505,7 @@ export default function Home() {
           agentServices={agents[selectedAgent].services}
           disabled={isExecuting}
           presetQuestions={PRESET_QUESTIONS[selectedAgent] || []}
+          followUpQuestions={followUps}
           onPresetSelect={(q) => {
             if (isExecuting) return;
             setInputValue(q);
