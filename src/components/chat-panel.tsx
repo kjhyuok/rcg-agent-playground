@@ -34,36 +34,41 @@ function splitIntoBlocks(markdown: string): string[] {
     .filter(Boolean);
 }
 
-// 스트리밍 중에는 매 청크(수 ms)마다가 아니라 일정 간격으로만 마크다운을 다시 그린다.
-// 헤딩/코드블록/표 같은 구조가 스트리밍 도중에도 계속 보이도록 하면서(plain text로
-// 보이면 뭉친 텍스트처럼 읽힘), 청크 도착 타이밍과 렌더 비용이 겹쳐 끊기는 것도 방지.
-function useThrottledValue<T>(value: T, intervalMs: number): T {
-  const [throttled, setThrottled] = useState(value);
-  const lastUpdateRef = useRef(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+// 타자기(typewriter) 렌더.
+// Agent는 Tool 호출 동안 몇 초 침묵하다가 최종 답변을 짧은 시간에 몰아서 뱉는다.
+// 그래서 "누적 content"를 그대로 그리면 네트워크는 스트리밍이어도 화면엔 한 번에 뜬 것처럼
+// 보인다. 이 훅은 목표 텍스트(target)를 향해 표시 길이를 매 프레임 조금씩 따라잡아,
+// 청크가 몰려와도 글자가 자연스럽게 흐르게 만든다. 뒤처질수록 빠르게 따라잡아
+// 응답이 밀리지 않는다. 스트리밍이 끝나면 즉시 전체를 표시한다.
+function useTypewriter(target: string, isStreaming: boolean): string {
+  const [len, setLen] = useState(isStreaming ? 0 : target.length);
+  const targetRef = useRef(target);
 
   useEffect(() => {
-    const now = Date.now();
-    const elapsed = now - lastUpdateRef.current;
+    targetRef.current = target;
+  }, [target]);
 
-    if (elapsed >= intervalMs) {
-      lastUpdateRef.current = now;
-      setThrottled(value);
+  useEffect(() => {
+    if (!isStreaming) {
+      setLen(targetRef.current.length);
       return;
     }
-
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      lastUpdateRef.current = Date.now();
-      setThrottled(value);
-    }, intervalMs - elapsed);
-
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    let raf = 0;
+    const tick = () => {
+      setLen((cur) => {
+        const goal = targetRef.current.length;
+        if (cur >= goal) return cur;
+        // 남은 글자가 많을수록 크게 전진 → 밀린 청크를 빠르게 흡수하되 최소 2자씩
+        const step = Math.max(2, Math.ceil((goal - cur) / 10));
+        return Math.min(goal, cur + step);
+      });
+      raf = requestAnimationFrame(tick);
     };
-  }, [value, intervalMs]);
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isStreaming]);
 
-  return throttled;
+  return target.slice(0, len);
 }
 
 function ThinkingChecklist({ steps, isLive }: { steps: ThinkingStep[]; isLive?: boolean }) {
@@ -140,9 +145,8 @@ function AnimatedMarkdown({ content }: { content: string }) {
 function AgentMessageBubble({ msg, alreadyAnimated }: { msg: ChatMessage; alreadyAnimated: boolean }) {
   const hasThinkingSteps = (msg.thinkingSteps?.length ?? 0) > 0;
   const isWaiting = msg.isStreaming && msg.content === "" && !hasThinkingSteps;
-  // 스트리밍 중에는 매 청크가 아니라 200ms마다만 마크다운을 다시 그려
-  // 헤딩/코드블록/표 구조가 계속 보이면서도 렌더 비용을 억제한다.
-  const throttledContent = useThrottledValue(msg.content, 200);
+  // 스트리밍 중에는 타자기 효과로 표시 — 청크가 몰려와도 글자가 흐르게 보인다.
+  const typedContent = useTypewriter(msg.content, !!msg.isStreaming);
 
   return (
     <div className="relative agent-bubble px-4 py-3 rounded-2xl rounded-bl-md text-[13px] leading-relaxed text-slate-200 overflow-hidden">
@@ -157,7 +161,7 @@ function AgentMessageBubble({ msg, alreadyAnimated }: { msg: ChatMessage; alread
       ) : msg.isStreaming ? (
         <>
           <div className={MARKDOWN_CLASSES}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{throttledContent}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{typedContent}</ReactMarkdown>
           </div>
           <span className="inline-block w-[2px] h-[14px] bg-cyan-400 ml-0.5 animate-pulse" />
         </>
