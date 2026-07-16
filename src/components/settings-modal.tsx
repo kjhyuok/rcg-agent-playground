@@ -20,7 +20,6 @@ interface SettingsModalProps {
 const AGENT_FIELDS = [
   { key: "recommendArn" as const, icon: "🛒", name: "추천 Agent", phase: 1, placeholder: "arn:aws:bedrock-agentcore:us-east-1:...:runtime/rcg_recommend_agent-..." },
   { key: "csArn" as const, icon: "💬", name: "CS Agent", phase: 2, placeholder: "arn:aws:bedrock-agentcore:us-east-1:...:runtime/rcg_cs_agent-..." },
-  { key: "demandArn" as const, icon: "📈", name: "수요예측 Agent", phase: 2, placeholder: "arn:aws:bedrock-agentcore:us-east-1:...:runtime/rcg_demand_agent-..." },
   { key: "customArn" as const, icon: "⚙️", name: "커스텀 Agent", phase: 3, placeholder: "arn:aws:bedrock-agentcore:us-east-1:...:runtime/my_custom_agent-..." },
 ];
 
@@ -41,7 +40,7 @@ export function SettingsModal({
           <DialogTitle className="text-white text-base flex items-center gap-2">
             Agent 설정
             <span className="text-[11px] font-normal text-zinc-500">
-              {activeCount}/4 연결됨
+              {activeCount}/{AGENT_FIELDS.length} 연결됨
             </span>
           </DialogTitle>
         </DialogHeader>
@@ -104,7 +103,6 @@ export function SettingsModal({
                 onSettingsChange({
                   recommendArn: "",
                   csArn: "",
-                  demandArn: "",
                   customArn: "",
                 });
               }}

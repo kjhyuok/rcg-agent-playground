@@ -20,7 +20,7 @@ function successRateColor(rate: number): string {
 
 const PHASE_STEPS = [
   { phase: 1, label: "추천 Agent", description: "Gateway + Runtime" },
-  { phase: 2, label: "CS / 수요예측", description: "+ Memory + Policy" },
+  { phase: 2, label: "CS 자동화", description: "+ Memory + Policy" },
   { phase: 3, label: "커스텀 Agent", description: "+ Multi-Agent" },
   { phase: 4, label: "Arena", description: "벤치마크 제출" },
 ];

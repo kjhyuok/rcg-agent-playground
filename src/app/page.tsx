@@ -41,13 +41,6 @@ const AGENT_DEFINITIONS: Array<{
     services: "+ Memory · Policy · Browser",
   },
   {
-    name: "수요예측 Agent",
-    icon: "📊",
-    phase: 2,
-    description: "재고 분석 · 트렌드 수집 · 자동 발주",
-    services: "+ Memory · Policy · Browser",
-  },
-  {
     name: "커스텀 Agent",
     icon: "⚡",
     phase: 3,
@@ -66,10 +59,6 @@ const MOCK_RESPONSES: MockResponse[] = [
     reply: "주문 ORD-2024-789 확인했습니다.\n\n📦 상품: 보조배터리 (₩35,000)\n📋 상태: 배송 완료\n\n반품 가능합니다. 상품 불량 사유로 환불 처리하겠습니다.\n✅ 환불 ₩35,000 → 원결제수단 3~5영업일 내 환급",
   },
   {
-    tools: ["inventory_status", "sales_trend", "external_factors"],
-    reply: "📊 재고 분석 결과 (store-001)\n\n⚠️ 품절 위험:\n• 음료류: 재고 23박스 (안전재고 80)\n• 라면류: 재고 45박스 (안전재고 100)\n\n📈 트렌드: 음료 +35% (폭염 예보)\n\n🛒 발주 권고:\n• 음료류 200박스 (긴급)\n• 라면류 80박스 (일반)\n\n⚠️ 총 ₩1,600,000 — 승인 필요",
-  },
-  {
     tools: ["custom_tool"],
     reply: "커스텀 Agent가 준비되었습니다. Settings에서 Agent ARN을 설정하면 실제 Agent를 호출할 수 있습니다.",
   },
@@ -78,8 +67,7 @@ const MOCK_RESPONSES: MockResponse[] = [
 const WELCOME_MESSAGES: Record<number, string> = {
   0: "🛒 추천 Agent 준비 완료! 고객 ID와 함께 상품 추천을 요청하세요.",
   1: "📞 CS Agent 준비 완료! 주문번호와 함께 문의하세요.",
-  2: "📊 수요예측 Agent 준비 완료! 매장 재고 분석을 요청하세요.",
-  3: "⚙️ 커스텀 Agent — Settings에서 ARN을 설정하세요.",
+  2: "⚙️ 커스텀 Agent — Settings에서 ARN을 설정하세요.",
 };
 
 // Agent별 예시 질문 — 입력창 위 preset 칩으로 노출.
@@ -97,21 +85,15 @@ const PRESET_QUESTIONS: Record<number, string[]> = {
     "C002 고객 배송 지연 문의 대응 방법 알려줘",
   ],
   2: [
-    "현재 재고 분석하고 긴급 발주 진행해",
-    "음료류 재고 트렌드 알려줘",
-    "이번 주 발주 우선순위 정리해줘",
-  ],
-  3: [
     "Settings에서 ARN을 먼저 설정해주세요",
   ],
 };
 
 const SETTINGS_STORAGE_KEY = "rcg-playground-settings";
-const ARN_KEYS = ["recommendArn", "csArn", "demandArn", "customArn"] as const;
+const ARN_KEYS = ["recommendArn", "csArn", "customArn"] as const;
 const DEFAULT_SETTINGS: AgentSettings = {
   recommendArn: "",
   csArn: "",
-  demandArn: "",
   customArn: "",
 };
 
@@ -147,10 +129,11 @@ function deriveAgents(
 }
 
 // Settings 변경 시 → ARN 유무로 Phase 자동 계산 (파생값, state로 관리하지 않음)
+// 인덱스: 0=추천(P1), 1=CS(P2), 2=커스텀(P3)
 function derivePhase(settings: AgentSettings): number {
   const hasArn = ARN_KEYS.map((k) => settings[k]?.trim() !== "");
-  if (hasArn[3]) return 3;
-  if (hasArn[1] || hasArn[2]) return 2;
+  if (hasArn[2]) return 3;
+  if (hasArn[1]) return 2;
   return 1;
 }
 
@@ -257,8 +240,8 @@ export default function Home() {
     };
     updateMessages(invokedAgentIdx, (prev) => [...prev, userMsg]);
 
-    const agentTypes: Array<"recommend" | "cs" | "demand" | "custom"> = [
-      "recommend", "cs", "demand", "custom",
+    const agentTypes: Array<"recommend" | "cs" | "custom"> = [
+      "recommend", "cs", "custom",
     ];
     const agentType = agentTypes[selectedAgent];
 
@@ -450,7 +433,7 @@ export default function Home() {
             <span className="text-cyan-400 font-semibold">{currentPhase}</span>
             <span className="text-zinc-600">·</span>
             <span className="text-zinc-500">
-              {agents.filter((a) => a.status === "ACTIVE").length} agents
+              Agent <span className="text-zinc-300 font-semibold">{agents.filter((a) => a.status === "ACTIVE").length}</span>/{agents.length} 배포됨
             </span>
           </div>
           <Badge
@@ -499,6 +482,9 @@ export default function Home() {
           onInputChange={setInputValue}
           onSend={handleSend}
           agentName={agents[selectedAgent].name}
+          agentIcon={agents[selectedAgent].icon}
+          agentDescription={agents[selectedAgent].description}
+          agentServices={agents[selectedAgent].services}
           disabled={isExecuting}
           presetQuestions={PRESET_QUESTIONS[selectedAgent] || []}
           onPresetSelect={(q) => {

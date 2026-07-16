@@ -110,14 +110,14 @@ export function getActiveServicesForPhase(phase: number): string[] {
 
 // Mock execution flow 생성 (Phase + Agent 타입에 따라)
 export function generateMockExecutionFlow(
-  agentType: "recommend" | "cs" | "demand" | "custom",
+  agentType: "recommend" | "cs" | "custom",
   phase: number
 ): ExecutionStep[] {
   const steps: ExecutionStep[] = [];
   let time = 0;
 
   // Phase 2+: Memory Retrieve
-  if (phase >= 2 && (agentType === "cs" || agentType === "demand")) {
+  if (phase >= 2 && agentType === "cs") {
     steps.push({
       serviceId: "memory",
       status: "done",
@@ -134,8 +134,6 @@ export function generateMockExecutionFlow(
       ? ["customer_profile", "product_search"]
       : agentType === "cs"
       ? ["cs_lookup_order", "cs_return_policy"]
-      : agentType === "demand"
-      ? ["inventory_status", "sales_trend"]
       : ["custom_tool"];
 
   for (const tool of toolCalls) {
@@ -190,7 +188,7 @@ export function generateMockExecutionFlow(
   }
 
   // Phase 2+: Memory Store
-  if (phase >= 2 && (agentType === "cs" || agentType === "demand")) {
+  if (phase >= 2 && agentType === "cs") {
     steps.push({
       serviceId: "memory",
       status: "done",

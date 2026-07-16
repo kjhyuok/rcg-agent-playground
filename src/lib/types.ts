@@ -46,7 +46,6 @@ export interface ActivityItem {
 export interface AgentSettings {
   recommendArn: string;
   csArn: string;
-  demandArn: string;
   customArn: string;
   [key: string]: string;
 }

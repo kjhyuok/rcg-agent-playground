@@ -118,7 +118,7 @@ export function ExecutionFlow({ currentPhase, liveLog, isExecuting, isLive }: Ex
                   </span>
                   {!isAvailable && (
                     <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-800/60 text-zinc-500 border border-zinc-700/40">
-                      Phase {service.phase}
+                      🔒 Phase {service.phase}
                     </span>
                   )}
                   {isDetected && isLive && (

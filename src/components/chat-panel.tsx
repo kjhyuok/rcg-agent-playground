@@ -17,6 +17,10 @@ interface ChatPanelProps {
   disabled?: boolean;
   presetQuestions?: string[];
   onPresetSelect?: (question: string) => void;
+  /** empty state(대화 시작 전)에 표시할 Agent 메타 */
+  agentIcon?: string;
+  agentDescription?: string;
+  agentServices?: string;
 }
 
 // 최종 응답을 문단/리스트/헤딩 단위 블록으로 쪼갠다 (빈 줄 기준).
@@ -139,7 +143,7 @@ function AgentMessageBubble({ msg, alreadyAnimated }: { msg: ChatMessage; alread
   const throttledContent = useThrottledValue(msg.content, 200);
 
   return (
-    <div className="relative glass px-4 py-3 rounded-2xl rounded-bl-md text-[13px] leading-relaxed text-slate-200 overflow-hidden">
+    <div className="relative agent-bubble px-4 py-3 rounded-2xl rounded-bl-md text-[13px] leading-relaxed text-slate-200 overflow-hidden">
       {isWaiting ? (
         <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-white/[0.06] text-zinc-400 text-[12px]">
           Generating response
@@ -180,6 +184,94 @@ function AgentMessageBubble({ msg, alreadyAnimated }: { msg: ChatMessage; alread
   );
 }
 
+// 대화 시작 전 중앙 안내 화면 — 빈 채팅 공간을 Agent 소개 + 예시 질문 카드로 채운다.
+function EmptyState({
+  agentIcon,
+  agentName,
+  agentDescription,
+  agentServices,
+  presetQuestions,
+  disabled,
+  onPresetSelect,
+}: {
+  agentIcon?: string;
+  agentName: string;
+  agentDescription?: string;
+  agentServices?: string;
+  presetQuestions: string[];
+  disabled: boolean;
+  onPresetSelect?: (q: string) => void;
+}) {
+  return (
+    <motion.div
+      key="empty"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex flex-col items-center justify-center h-full text-center px-6 py-8"
+    >
+      {/* Agent 아이콘 — glow ring */}
+      <div className="relative mb-4">
+        <div className="absolute inset-0 rounded-2xl bg-cyan-500/20 blur-xl" />
+        <div className="relative w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center text-3xl">
+          {agentIcon || "🤖"}
+        </div>
+      </div>
+
+      <h3 className="text-[15px] font-semibold text-white">{agentName}</h3>
+      {agentDescription && (
+        <p className="mt-1 text-[12px] text-slate-400 max-w-[340px] leading-relaxed">
+          {agentDescription}
+        </p>
+      )}
+      {agentServices && (
+        <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
+          {agentServices
+            .replace(/^\+\s*/, "")
+            .split("·")
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .map((s, i) => (
+              <span
+                key={i}
+                className="px-2 py-0.5 rounded-full text-[10px] text-cyan-300/80 bg-cyan-500/[0.07] border border-cyan-500/20"
+              >
+                {s}
+              </span>
+            ))}
+        </div>
+      )}
+
+      {/* 예시 질문 카드 */}
+      {presetQuestions.length > 0 && (
+        <div className="mt-7 w-full max-w-[420px]">
+          <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-2 font-semibold">
+            이렇게 물어보세요
+          </p>
+          <div className="flex flex-col gap-2">
+            {presetQuestions.map((q, i) => (
+              <motion.button
+                key={i}
+                type="button"
+                disabled={disabled}
+                onClick={() => onPresetSelect?.(q)}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 + i * 0.06 }}
+                className="group flex items-center gap-2.5 text-left px-3.5 py-2.5 rounded-xl text-[12px] text-slate-300 bg-white/[0.03] border border-white/10 hover:bg-cyan-500/[0.08] hover:border-cyan-500/30 hover:text-cyan-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span className="text-cyan-500/70 group-hover:text-cyan-400 transition-colors">
+                  ↗
+                </span>
+                <span className="flex-1">{q}</span>
+              </motion.button>
+            ))}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 export function ChatPanel({
   messages,
   inputValue,
@@ -189,6 +281,9 @@ export function ChatPanel({
   disabled = false,
   presetQuestions = [],
   onPresetSelect,
+  agentIcon,
+  agentDescription,
+  agentServices,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // 스트리밍이 막 끝난 메시지만 블록 fade-in 애니메이션을 1회 적용하고,
@@ -209,6 +304,9 @@ export function ChatPanel({
     });
   }, [messages, animatedIds]);
 
+  // 아직 사용자가 아무 질문도 안 한 상태(환영 메시지만) → Agent 소개 empty state 노출
+  const conversationStarted = messages.some((m) => m.type === "user");
+
   return (
     <div className="glass rounded-xl flex flex-col h-full overflow-hidden">
       {/* Chat Header */}
@@ -221,11 +319,22 @@ export function ChatPanel({
         </span>
       </div>
 
-      {/* Messages */}
+      {/* Messages / Empty State */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto p-4 flex flex-col gap-3"
       >
+        {!conversationStarted ? (
+          <EmptyState
+            agentIcon={agentIcon}
+            agentName={agentName}
+            agentDescription={agentDescription}
+            agentServices={agentServices}
+            presetQuestions={presetQuestions}
+            disabled={disabled}
+            onPresetSelect={onPresetSelect}
+          />
+        ) : (
         <AnimatePresence mode="popLayout">
           {messages.map((msg) => {
             if (msg.type === "user") {
@@ -271,10 +380,11 @@ export function ChatPanel({
             );
           })}
         </AnimatePresence>
+        )}
       </div>
 
-      {/* Preset 질문 칩 */}
-      {presetQuestions.length > 0 && (
+      {/* Preset 질문 칩 — 대화 시작 후에만(시작 전엔 EmptyState에 이미 노출) */}
+      {conversationStarted && presetQuestions.length > 0 && (
         <div className="px-3 pt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
           {presetQuestions.map((q, i) => (
             <button
