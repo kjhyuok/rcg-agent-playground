@@ -1,6 +1,7 @@
-const API_BASE = typeof window !== "undefined"
-  ? `${window.location.protocol}//${window.location.hostname}:5050`
-  : "http://localhost:5050";
+// 같은 오리진의 상대경로로 호출한다. Flask는 EC2 로컬 5050에만 떠 있고,
+// next.config.ts의 rewrites가 /api/* 를 로컬 Flask로 프록시한다.
+// (CloudFront는 3000만 노출하므로 브라우저가 :5050에 직접 붙을 수 없음)
+const API_BASE = "";
 
 export interface HealthResponse {
   status: "connected" | "disconnected";
