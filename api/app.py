@@ -46,16 +46,18 @@ def extract_delta_text(event: dict):
     return text if isinstance(text, str) else None
 
 
+def detect_gateway_tools(content: str) -> list:
+    """응답 본문 키워드로 이 호출에서 쓰였을 가능성이 높은 Gateway Tool을 역추정한다.
+    Tool 이름은 대부분 답변 본문 뒤쪽 근거에서 드러나므로 누적된 전체 응답으로 판단한다."""
+    detected = [name for name, kws in TOOL_KEYWORDS.items() if any(kw in content for kw in kws)]
+    return [{"serviceId": "gateway", "detail": tool} for tool in detected[:3]]
+
+
 def detect_execution_steps(content: str) -> list:
-    """응답 본문 키워드로 감지된 실행 단계를 순서대로 구성한다.
+    """응답 본문 키워드로 감지된 실행 단계를 순서대로 구성한다 (non-stream 경로용).
     Runtime API가 중간 이벤트를 제공하지 않아 완전한 실시간 트레이스는 불가능 —
     최종 응답을 근거로 재구성한 것임을 프론트에 명시해야 함."""
-    steps = []
-    detected_tools = [name for name, kws in TOOL_KEYWORDS.items() if any(kw in content for kw in kws)]
-
-    for tool in detected_tools[:3]:
-        steps.append({"serviceId": "gateway", "detail": tool})
-
+    steps = list(detect_gateway_tools(content))
     steps.append({"serviceId": "llm", "detail": f"응답 생성 (~{len(content)}자)"})
     steps.append({"serviceId": "observability", "detail": "Trace 기록"})
     return steps
@@ -139,15 +141,21 @@ def invoke_agent_stream():
                         if event.get("type") == "chunk" or delta_text is not None:
                             text_piece = event.get("response", "") if event.get("type") == "chunk" else delta_text
                             if not steps_sent:
-                                # 첫 청크가 도착한 순간 = LLM이 실제로 답을 만들기 시작한 시점.
-                                # 이 시점을 기준으로 실행 단계 배지를 한 번만 보여준다.
-                                for step in detect_execution_steps(text_piece):
-                                    yield f"data: {json.dumps({'type': 'step', **step})}\n\n"
+                                # 첫 청크 도착 = 답 생성 시작. 진행감을 위해 항상 켜지는
+                                # llm/observability 배지를 이 시점에 먼저 보여준다.
+                                yield f"data: {json.dumps({'type': 'step', 'serviceId': 'llm', 'detail': '응답 생성 중'})}\n\n"
+                                yield f"data: {json.dumps({'type': 'step', 'serviceId': 'observability', 'detail': 'Trace 기록'})}\n\n"
                                 steps_sent = True
                             partial += text_piece
                             yield f"data: {json.dumps({'type': 'chunk', 'content': partial})}\n\n"
                         elif event.get("type") == "done":
                             partial = event.get("response", partial)
+
+                    # Gateway Tool 감지는 누적된 최종 응답(partial) 전체로 수행한다.
+                    # 첫 청크만 보면 Tool 키워드(프로필/추천 상품/구매 이력 등)가 대부분
+                    # 본문 뒤쪽에 있어 감지되지 않아, Gateway 카드가 비어 보였다.
+                    for step in detect_gateway_tools(partial):
+                        yield f"data: {json.dumps({'type': 'step', **step})}\n\n"
                 else:
                     # 하위 호환: 스트리밍을 지원하지 않는(return dict) Agent
                     result_bytes = response_body.read()
