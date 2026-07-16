@@ -58,9 +58,13 @@ function useTypewriter(target: string, isStreaming: boolean): string {
       setLen((cur) => {
         const goal = targetRef.current.length;
         if (cur >= goal) return cur;
-        // 남은 글자가 많을수록 크게 전진 → 밀린 청크를 빠르게 흡수하되 최소 2자씩
-        const step = Math.max(2, Math.ceil((goal - cur) / 10));
-        return Math.min(goal, cur + step);
+        const remaining = goal - cur;
+        // 프레임당 전진량에 상한(cap)을 둔다. 상한이 없으면 답변이 길수록
+        // 순식간에 따라잡아 "한 번에 뜬" 것과 똑같아진다.
+        // 최소 2자 / 밀린 양의 약 4% / 프레임당 최대 12자(≈초당 700자) 사이로 제한 →
+        // 어떤 길이든 몇 초에 걸쳐 또박또박 흐르는 타자기 느낌.
+        const step = Math.min(remaining, Math.min(12, Math.max(2, Math.ceil(remaining / 24))));
+        return cur + step;
       });
       raf = requestAnimationFrame(tick);
     };
