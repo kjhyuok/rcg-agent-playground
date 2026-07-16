@@ -56,9 +56,6 @@ def detect_execution_steps(content: str) -> list:
     for tool in detected_tools[:3]:
         steps.append({"serviceId": "gateway", "detail": tool})
 
-    if any(kw in content for kw in ["분석", "계산", "비교", "차트"]):
-        steps.append({"serviceId": "code-interpreter", "detail": "데이터 분석 실행"})
-
     steps.append({"serviceId": "llm", "detail": f"응답 생성 (~{len(content)}자)"})
     steps.append({"serviceId": "observability", "detail": "Trace 기록"})
     return steps

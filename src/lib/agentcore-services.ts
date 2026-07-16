@@ -29,14 +29,6 @@ export const AGENTCORE_SERVICES: AgentCoreService[] = [
     phase: 1,
   },
   {
-    id: "code-interpreter",
-    name: "Code Interpreter",
-    icon: "",
-    description: "Python 코드 실행",
-    status: "idle",
-    phase: 1,
-  },
-  {
     id: "memory",
     name: "Memory",
     icon: "",
@@ -99,7 +91,6 @@ export interface ExecutionStep {
 const THINKING_LABELS: Record<string, string> = {
   gateway: "관련 정보를 조회하고 있어요",
   llm: "답변을 정리하고 있어요",
-  "code-interpreter": "데이터를 분석하고 있어요",
   memory: "이전 대화 맥락을 확인하고 있어요",
   policy: "정책을 확인하고 있어요",
   browser: "외부 정보를 조회하고 있어요",
@@ -169,18 +160,6 @@ export function generateMockExecutionFlow(
     timestamp: time,
   });
   time += llmLat;
-
-  // Code Interpreter (Phase 1 추천 only, 가끔)
-  if (agentType === "recommend" && Math.random() > 0.5) {
-    steps.push({
-      serviceId: "code-interpreter",
-      status: "done",
-      detail: "가격 비교 분석 실행",
-      latencyMs: 2000 + Math.floor(Math.random() * 3000),
-      timestamp: time,
-    });
-    time += 3000;
-  }
 
   // Phase 2+: Policy check
   if (phase >= 2 && agentType === "cs") {

@@ -31,7 +31,7 @@ const AGENT_DEFINITIONS: Array<{
     icon: "🛒",
     phase: 1,
     description: "고객 맞춤 상품 추천 + 매출 시각화",
-    services: "Gateway · Runtime · Observability · Code Interpreter",
+    services: "Gateway · Runtime · Observability",
   },
   {
     name: "CS 자동화 Agent",
@@ -487,7 +487,7 @@ export default function Home() {
       />
 
       {/* Main Grid */}
-      <div className="flex-1 grid grid-cols-[260px_1fr_300px] gap-3 p-3 overflow-hidden">
+      <div className="flex-1 grid grid-cols-[260px_1fr_380px] gap-3 p-3 overflow-hidden">
         <AgentSidebar
           agents={agents}
           selectedAgent={selectedAgent}

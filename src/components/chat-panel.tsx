@@ -62,21 +62,30 @@ function useThrottledValue<T>(value: T, intervalMs: number): T {
 
 function ThinkingChecklist({ steps, isLive }: { steps: ThinkingStep[]; isLive?: boolean }) {
   return (
-    <div className="flex flex-col gap-1.5 py-1">
+    <div className="flex flex-col py-1">
       <AnimatePresence initial={false}>
-        {steps.map((step) => (
+        {steps.map((step, i) => (
           <motion.div
             key={step.id}
             initial={{ opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
-            className="flex items-center gap-2 text-[12px]"
+            className="flex items-stretch gap-2.5"
           >
-            {step.status === "done" ? (
-              <span className="text-emerald-400">✓</span>
-            ) : (
-              <span className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-            )}
-            <span className={step.status === "done" ? "text-zinc-500" : "text-zinc-300"}>
+            <div className="flex flex-col items-center">
+              {step.status === "done" ? (
+                <span className="w-4 h-4 rounded-full border-[1.5px] border-emerald-400 text-emerald-400 flex items-center justify-center text-[10px] flex-shrink-0">
+                  ✓
+                </span>
+              ) : (
+                <span className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+              )}
+              {i < steps.length - 1 && (
+                <span className="w-px flex-1 min-h-[10px] bg-zinc-700 mt-0.5" />
+              )}
+            </div>
+            <span
+              className={`text-[12px] pb-2.5 ${step.status === "done" ? "text-zinc-300 font-medium" : "text-zinc-400"}`}
+            >
               {step.label}
             </span>
           </motion.div>
@@ -130,13 +139,11 @@ function AgentMessageBubble({ msg, alreadyAnimated }: { msg: ChatMessage; alread
   const throttledContent = useThrottledValue(msg.content, 200);
 
   return (
-    <div className="glass px-4 py-3 rounded-2xl rounded-bl-md text-[13px] leading-relaxed text-slate-200">
+    <div className="relative glass px-4 py-3 rounded-2xl rounded-bl-md text-[13px] leading-relaxed text-slate-200 overflow-hidden">
       {isWaiting ? (
-        <div className="flex items-center gap-1.5 py-1">
-          <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
-          <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
-          <span className="typing-dot w-1.5 h-1.5 rounded-full bg-cyan-400" />
-        </div>
+        <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-white/[0.06] text-zinc-400 text-[12px]">
+          Generating response
+        </span>
       ) : msg.isStreaming && msg.content === "" ? (
         // 아직 텍스트는 안 왔지만 실행 단계(Tool 호출 등)가 감지된 상태 —
         // "생각 중" 체크리스트로 표시. isLive=false면 예시 시나리오임을 명시한다.
@@ -156,6 +163,19 @@ function AgentMessageBubble({ msg, alreadyAnimated }: { msg: ChatMessage; alread
       ) : (
         <AnimatedMarkdown content={msg.content} />
       )}
+      {/* 응답 생성 중에는 계속, 완료 직후엔 짧게 흐르다 사라지는 하단 shimmer 라인 */}
+      <AnimatePresence>
+        {(msg.isStreaming || !alreadyAnimated) && (
+          <motion.span
+            key="shimmer"
+            initial={{ opacity: msg.isStreaming ? 1 : 0.9 }}
+            animate={{ opacity: msg.isStreaming ? 1 : 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: msg.isStreaming ? 0.2 : 1.4 }}
+            className="shimmer-bar absolute bottom-0 left-0 right-0 h-[2px]"
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
