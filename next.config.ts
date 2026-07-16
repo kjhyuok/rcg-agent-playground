@@ -7,6 +7,10 @@ import type { NextConfig } from "next";
 const API_ORIGIN = process.env.API_ORIGIN || "http://127.0.0.1:5050";
 
 const nextConfig: NextConfig = {
+  // next start의 기본 gzip이 /api/* 프록시(SSE)까지 압축하면 스트리밍이 죽는다
+  // (gzip은 버퍼링 → 청크가 마지막에 몰려 도착 → UI가 한 번에 뜸).
+  // 압축을 꺼서 text/event-stream이 도착 즉시 흐르게 한다.
+  compress: false,
   async rewrites() {
     return [
       {
