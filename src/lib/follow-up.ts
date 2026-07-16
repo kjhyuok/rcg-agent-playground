@@ -38,6 +38,25 @@ function extractOrders(text: string): string[] {
   return Array.from(new Set(matches));
 }
 
+// 경쟁사 mock 사이트에 실제 존재하는 상품만 (Browser 질문이 헛돌지 않도록)
+// competitor-prices.html: 보조배터리 / 무선이어폰 / 시카(수분)크림
+function competitorProductIn(text: string): string | null {
+  if (text.includes("보조배터리")) return "보조배터리";
+  if (text.includes("이어폰")) return "무선 이어폰";
+  if (text.includes("시카") || text.includes("수분크림")) return "시카 수분크림";
+  return null;
+}
+
+// 응답 텍스트로 "1차 질문이 어느 CS 단계였는지" 판별 → 다음 서비스로 유도
+function csStageOf(text: string): "return_processed" | "policy_shown" | "escalation" | "lookup" | "delivery" | null {
+  if (text.includes("에스컬레이션") || text.includes("별도 승인") || text.includes("승인이 필요")) return "escalation";
+  if (text.includes("환불") && (text.includes("처리") || text.includes("완료") || text.includes("원"))) return "return_processed";
+  if (text.includes("반품") && (text.includes("정책") || text.includes("가능") || text.includes("기간") || text.includes("조건"))) return "policy_shown";
+  if (text.includes("배송") && (text.includes("중") || text.includes("완료") || text.includes("추적") || text.includes("도착"))) return "delivery";
+  if (text.includes("주문") || text.includes("결제") || text.includes("상품")) return "lookup";
+  return null;
+}
+
 // "이 고객 말고 다른 알려진 고객"을 하나 고른다 (교차 비교 질문용)
 function otherCustomer(used: string[]): string {
   return KNOWN_CUSTOMERS.find((c) => !used.includes(c)) || "C002";
@@ -68,19 +87,39 @@ export function buildFollowUps(ctx: FollowUpContext): string[] {
       suggestions.push("C003 고객에게 어울리는 간편식 추천해줘");
     }
   } else if (agentType === "cs") {
-    if (orders.length > 0) {
-      const ord = orders[0];
-      suggestions.push(`${ord} 주문의 배송 상태 자세히 알려줘`);
-      suggestions.push(`${ord} 건 반품 정책이 어떻게 되는지 확인해줘`);
-      suggestions.push("이 상품 경쟁사 최저가랑 비교해줘");
+    // CS Agent는 Memory가 있어 "아까 그 주문"을 기억한다. 후속 질문은
+    // 방금 응답이 어느 단계였는지(csStageOf) 보고 "다음 서비스"로 자연스럽게 유도한다.
+    //   조회/배송 → 반품정책(Gateway) → 환불금액(Policy 에스컬레이션) → 경쟁사비교(Browser)
+    const ord = orders[0];
+    const stage = csStageOf(combined);
+    const product = competitorProductIn(combined);
+
+    if (ord) {
+      if (stage === "escalation" || stage === "return_processed") {
+        // 환불까지 끝남 → Browser(경쟁사)와 고객 단위 Memory로 유도
+        if (product) suggestions.push(`그 ${product}, 경쟁사 현재 최저가랑 비교해줘`);
+        suggestions.push("아까 그 주문 고객의 다른 주문도 있는지 확인해줘");
+        suggestions.push(`${ord} 반품 정책 조건도 다시 정리해줘`);
+      } else if (stage === "policy_shown") {
+        // 반품 정책 확인함 → 환불 처리(Policy 트리거)로 유도
+        suggestions.push(`그럼 ${ord} 환불하면 얼마 돌려받는지 처리해줘`);
+        if (product) suggestions.push(`이 ${product}, 다른 데가 더 싸다는데 비교해줘`);
+        suggestions.push("아까 그 주문, 반품 가능 여부랑 환불 조건 같이 알려줘");
+      } else {
+        // 조회/배송 단계 → 반품(Gateway) + 경쟁사(Browser)로 분기
+        suggestions.push(`${ord} 이 상품 반품하고 싶은데 가능한지 알려줘`);
+        if (product) suggestions.push(`그 ${product}, 경쟁사 가격이랑 비교해줘`);
+        suggestions.push(`${ord} 환불하면 얼마 받는지도 알려줘`);
+      }
     } else if (primaryCustomer) {
       suggestions.push(`${primaryCustomer} 고객의 최근 주문 상태 알려줘`);
-      suggestions.push(`${primaryCustomer} 고객 배송 지연 문의에 어떻게 대응할까?`);
-      suggestions.push("전자기기 반품 정책 알려줘");
+      suggestions.push(`${primaryCustomer} 고객 주문 중 반품 가능한 게 있는지 확인해줘`);
+      if (product) suggestions.push(`그 ${product}, 경쟁사 최저가랑 비교해줘`);
     } else {
-      suggestions.push("주문 ORD-20260620-002 배송 상태 알려줘");
-      suggestions.push("C001 고객 최근 주문 상태 알려줘");
-      suggestions.push("보조배터리 경쟁사 최저가 비교해줘");
+      // 폴백 — 각기 다른 서비스를 켜는 검증된 질문 (조회/에스컬레이션/경쟁사)
+      suggestions.push("주문 ORD-20260620-003 환불 처리해줘 (69,000원)");
+      suggestions.push("보조배터리 경쟁사 현재 가격이랑 비교해줘");
+      suggestions.push("ORD-20260620-002 배송 상태랑 반품 정책 알려줘");
     }
   } else {
     // custom Agent — 데이터 의존이 낮으므로 워크샵 개념 위주의 안전한 질문
